@@ -1,4 +1,3 @@
-import json
 import math
 
 EASES = {
@@ -6,11 +5,6 @@ EASES = {
     "linear": lambda p: p,
     "seep": lambda p: 1.0 - (1.0 - p) ** 3,
 }
-
-
-def load(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
 
 
 class Timeline:
@@ -39,6 +33,11 @@ class Timeline:
         for start, b in zip(self.starts, self.beats):
             for s in b.get("seeds", []):
                 yield s, start + s["t"]
+
+    def weaves(self):
+        for start, b in zip(self.starts, self.beats):
+            for w in b.get("weaves", []):
+                yield w, start + w["t"]
 
     def beat_at(self, t):
         i = 0
