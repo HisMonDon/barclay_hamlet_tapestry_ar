@@ -29,6 +29,8 @@ def load_source(cfg, path):
     p = resolve(cfg, path or cfg.get("scan", "assets/reference_tapestry.png"))
     img = cv2.imread(str(p), cv2.IMREAD_COLOR)
     if img is None:
+        if path is not None:
+            raise ValueError(f"Could not read source image: {p}")
         img, _ = reference.render_tapestry(cfg)
     return img
 
@@ -40,6 +42,7 @@ class Source:
         self.mode = mode
         self.cap = None
         self.H = None
+        self.video_index = -1
         if mode == "video":
             self.cap = cv2.VideoCapture(str(path))
             if not self.cap.isOpened():
@@ -57,15 +60,24 @@ class Source:
             if self.H is None:
                 self.H = truth
 
-    def get(self):
+    def get(self, t=None):
         if self.cap is None:
             return self.frame, self.H
+        if t is not None:
+            fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
+            target = max(0, int(t * fps))
+            if target == self.video_index and self.frame is not None:
+                return self.frame, self.H
+            if target != self.video_index + 1:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, target)
         ok, f = self.cap.read()
         if ok:
             self.frame = f
+            self.video_index = target if t is not None else self.video_index + 1
         if self.frame is None:
-            return None, None
-        return self.frame, self.renderer.tracker.update(self.frame)
+            raise ValueError("Source video contains no readable camera frames")
+        self.H = self.renderer.tracker.update(self.frame)
+        return self.frame, self.H
 
 
 def sheet_times(tl):
@@ -102,13 +114,10 @@ def contact_sheet(frames, cols=4, thumb=(560, 315)):
     return out
 
 
-def soundtrack(renderer, path):
-    try:
-        from sound import Soundtrack
-    except ImportError:
-        return None
+def soundtrack(renderer, path, start=0.0, end=None):
+    from sound import Soundtrack
     st = Soundtrack(renderer.cfg, renderer.timeline, renderer.scene)
-    st.write(path)
+    st.write(path, start, end)
     return path
 
 
@@ -143,6 +152,11 @@ def main():
     args = ap.parse_args()
 
     cfg = load(args.beats or default_beats(args.config), args.config, quality=args.quality)
+    cv2.setNumThreads(cfg.get("performance", {}).get("opencv_threads", 4))
+    if args.source and args.mode != "video":
+        cfg["scan"] = str(Path(args.source).resolve())
+    if args.fps <= 0:
+        ap.error("--fps must be positive")
     if args.no_atmosphere:
         for k in cfg.get("atmosphere", {}).values():
             k["on"] = False
@@ -153,13 +167,14 @@ def main():
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet_path = Path(args.sheet) if args.sheet else out.with_name(out.stem + "_sheet.png")
+    sheet_path.parent.mkdir(parents=True, exist_ok=True)
     frames_dir = Path(args.frames) if args.frames else None
     if frames_dir:
         frames_dir.mkdir(parents=True, exist_ok=True)
 
     if args.times:
         for t in (float(v) for v in args.times.split(",")):
-            frame, H = src.get()
+            frame, H = src.get(t)
             img = renderer.frame(frame, H, t)
             p = (frames_dir or out.parent) / f"t{t:06.2f}.png"
             cv2.imwrite(str(p), img)
@@ -170,7 +185,7 @@ def main():
     shots = []
     t0 = time.perf_counter()
     for bid, name, t in picks:
-        frame, H = src.get()
+        frame, H = src.get(t)
         img = renderer.frame(frame, H, t)
         shots.append(((bid, name, t), img))
         if frames_dir:
@@ -180,8 +195,10 @@ def main():
     if args.sheet_only:
         return
 
-    end = tl.end if args.end is None else args.end
-    n = int(round((end - args.start) * args.fps)) + 1
+    end = tl.end if args.end is None else min(args.end, tl.end)
+    if not 0 <= args.start < end:
+        ap.error("render range must satisfy 0 <= --start < --end <= timeline duration")
+    n = int(np.ceil((end - args.start) * args.fps))
     raw = out.with_name(out.stem + "_video.mp4")
     writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (renderer.ow, renderer.oh))
     if not writer.isOpened():
@@ -191,20 +208,22 @@ def main():
     t0 = time.perf_counter()
     for k in range(n):
         t = args.start + k / args.fps
-        frame, H = src.get()
+        frame, H = src.get(t)
         writer.write(renderer.frame(frame, H, t))
         if k % 150 == 0:
             print(f"  {t:6.2f} s  {k + 1}/{n}")
     writer.release()
     dt = time.perf_counter() - t0
     print(f"rendered {n} frames in {dt:.1f} s ({dt / n * 1000:.1f} ms/frame)")
-    wav = None if args.no_audio else soundtrack(renderer, out.with_suffix(".wav"))
+    wav = None if args.no_audio else soundtrack(renderer, out.with_suffix(".wav"), args.start, end)
     if wav and mux(raw, wav, out):
         raw.unlink()
         print(f"wrote {out} with audio")
     else:
         raw.replace(out)
         print(f"wrote {out}" + (f" and {wav} (ffmpeg not found, audio not muxed)" if wav else ""))
+    if src.cap is not None:
+        src.cap.release()
 
 
 if __name__ == "__main__":

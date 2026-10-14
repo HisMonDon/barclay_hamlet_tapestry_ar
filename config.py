@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 CONFIG = ROOT / "config.json"
 MM_PER_IN = 25.4
-SECTIONS = ("quality", "atmosphere", "sound", "camera_input", "backup_video", "cache_dir", "debug")
+SECTIONS = ("quality", "atmosphere", "sound", "camera_input", "backup_video", "cache_dir", "debug", "editor", "tracking", "performance")
 
 
 def read(path):

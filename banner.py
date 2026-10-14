@@ -64,6 +64,7 @@ class Weave:
         self.height = (y1 - y0) * aspect
         self.glint = glint
         self.hi = hi
+        self.finished = None
 
     def row_events(self):
         return [(self.t0 + k * self.row_time, 1 if k % 2 else -1) for k in range(self.nrows - 2)]
@@ -89,10 +90,12 @@ class Weave:
     def render(self, t):
         if t < self.t0:
             return None
-        p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
-        a = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0)
-        col = self.colour
         gl = self.glint_at(t)
+        if t >= self.finish() and gl is None and self.finished is not None:
+            return self.finished
+        p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
+        a = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
+        col = self.colour
         if gl is not None:
             pos, level, width = gl
             span = self.width + self.height
@@ -103,4 +106,7 @@ class Weave:
         out = np.empty(a.shape + (4,), np.float32)
         out[..., :3] = col * a[..., None]
         out[..., 3] = 255.0 * a
-        return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+        result = np.clip(out + 0.5, 0, 255).astype(np.uint8)
+        if t >= self.finish() and gl is None:
+            self.finished = result
+        return result

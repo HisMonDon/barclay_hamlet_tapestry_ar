@@ -3,6 +3,7 @@ import numpy as np
 
 from ink import hex_bgr
 from timeline import Timeline
+from atmosphere import Atmosphere
 
 INV = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
 
@@ -34,8 +35,11 @@ class Compositor:
         self.ow = int(round(cfg["output"]["width"] * sc))
         self.oh = int(round(cfg["output"]["height"] * sc))
         self.bg = tuple(int(v) for v in hex_bgr(cfg["background"]))
+        scale = cfg.get("quality", {}).get(cfg.get("quality_name", "live"), {}).get("composite_scale", 1.0)
+        self.work = (max(2, int(self.ow * scale) // 2 * 2), max(2, int(self.oh * scale) // 2 * 2))
         self.mult_inv = np.linalg.inv(scene.mult_to_tapestry())
         self.over_inv = np.linalg.inv(scene.over_to_tapestry())
+        self.atmosphere = Atmosphere(cfg, self.work)
 
     def crop_matrix(self, t):
         x, y, w, _ = self.timeline.camera_full(t)
@@ -81,4 +85,8 @@ class Compositor:
         if H is None:
             return self.fit(frame)
         M = self.view(t, H, frame.shape, virtual)
-        return self.compose(frame, H, M, (self.ow, self.oh), *self.scene.layers(t))
+        hold = self.timeline.starts[self.timeline.ids["B21"]] if "B21" in self.timeline.ids else self.timeline.end
+        work_w, work_h = self.work
+        M = M @ np.diag([self.ow / work_w, self.oh / work_h, 1.0])
+        out = self.atmosphere.apply(self.compose(frame, H, M, self.work, *self.scene.layers(min(t, hold))), t)
+        return out if self.work == (self.ow, self.oh) else cv2.resize(out, (self.ow, self.oh), interpolation=cv2.INTER_LINEAR)

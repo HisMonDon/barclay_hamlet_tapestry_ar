@@ -68,8 +68,8 @@ class Sprite:
         self._over(layer)
 
     def _over(self, layer):
-        a = layer[..., 3:4].astype(np.uint16)
-        self.buf[:] = np.minimum(255, layer.astype(np.uint16) + (self.buf.astype(np.uint16) * (255 - a) + 127) // 255).astype(np.uint8)
+        clear = cv2.subtract(255, layer[..., 3])
+        self.buf[:] = cv2.add(layer, cv2.multiply(self.buf, cv2.merge([clear, clear, clear, clear]), scale=1 / 255))
 
     def done(self):
         if not self.ok:
@@ -306,6 +306,7 @@ class Crown(Prop):
         vy = v0[1]
         self.tB = max(0.12, (-vy + math.sqrt(max(0.0, vy * vy + 2 * self.g * max(1.0, dy)))) / self.g)
         self.land = np.array([p0[0] + v0[0] * self.tB, land_y])
+        self.settled = None
 
     def ungild(self):
         return (self.at[0] / self.tw, self.at[1] / self.th, self.R * 1.6 / self.tw)
@@ -358,6 +359,9 @@ class Crown(Prop):
     def stamps(self, t):
         if t < self.t0 - 2.0:
             return []
+        finish = self.t0 + self.tA + self.tB + self.tC + self.tD
+        if t >= finish and self.settled is not None:
+            return self.settled
         M, pos, ref = self.pose(t)
         R = self.R
         cp, sp_ = math.cos(self.pitch), math.sin(self.pitch)
@@ -420,7 +424,10 @@ class Crown(Prop):
                 sp.disc(q, R * 0.11, (40, 30, 150) if k % 2 == 0 else (130, 70, 30))
                 sp.disc(q + np.array([-R * 0.035, -R * 0.035]), R * 0.035, (225, 225, 240), 0.85)
         out = sp.done()
-        return [out] if out else []
+        result = [out] if out else []
+        if t >= finish:
+            self.settled = result
+        return result
 
 
 class Petals(Prop):

@@ -10,17 +10,53 @@
  "overlay_margin": 0.8,
  "beats": "beats_v2.json",
  "quality": {
-  "live": {"ink_resolution": 0.6, "overlay_scale": 1.25, "output_scale": 1.0},
-  "render": {"ink_resolution": 1.0, "overlay_scale": 1.6, "output_scale": 1.0}
+  "live": {"ink_resolution": 0.45, "overlay_scale": 0.85, "output_scale": 1.0, "composite_scale": 0.6},
+  "render": {"ink_resolution": 1.0, "overlay_scale": 1.6, "output_scale": 1.0, "composite_scale": 1.0}
  },
  "atmosphere": {
-  "flicker": {"on": true, "amount": 0.028, "warmth": 0.012, "speed": 1.0, "seed": 3},
-  "vignette": {"on": true, "strength": 0.28, "softness": 0.65, "tint": "#fff2df"},
-  "grain": {"on": true, "amount": 2.2, "fps": 24}
+  "flicker": {"on": true, "amount": 0.018, "warmth": 0.008, "speed": 1.0, "seed": 3},
+  "vignette": {"on": true, "strength": 0.14, "softness": 0.65, "tint": "#fff2df"},
+  "grain": {"on": true, "amount": 0.7, "fps": 24, "seed": 21, "frames": 6}
  },
- "sound": {"on": true, "rate": 44100, "volume": 0.8, "dir": "assets/sfx", "backend": "auto", "sync_tolerance": 0.06},
- "camera_input": {"source": "0", "backend": "auto", "capture_size": "1920x1080", "reconnect_s": 1.5, "stale_s": 0.75},
+ "sound": {
+  "on": true,
+  "rate": 44100,
+  "volume": 0.8,
+  "dir": "assets/sfx",
+  "backend": "auto",
+  "sync_tolerance": 0.06,
+  "silence_from": "B21",
+  "synthesis": {
+   "seed": 19,
+   "edge_s": 0.008,
+   "crackle_density": 9,
+   "durations": {"crackle": 4.0, "drip": 0.6, "seep": 6.0, "creak": 6.0, "shuttle": 0.3}
+  }
+ },
+ "camera_input": {
+  "source": "0",
+  "backend": "auto",
+  "capture_size": "1920x1080",
+  "reconnect_s": 1.5,
+  "stale_s": 0.75,
+  "read_timeout_ms": 1500,
+  "open_timeout_ms": 2000
+ },
  "backup_video": "renders/backup.mp4",
  "cache_dir": ".cache",
- "debug": {"hud": false}
+ "debug": {"hud": false},
+ "editor": {
+  "width": 1440,
+  "height": 900,
+  "panel_width": 330,
+  "seed_radius": 0.06,
+  "seed_speed": 0.035,
+  "pick_px": 14,
+  "preview_width": 640,
+  "debounce_s": 0.25,
+  "ink_resolution": 0.25,
+  "overlay_scale": 0.6
+ },
+ "tracking": {"min_markers": 3, "smoothing": 0.35, "snap_px": 30.0, "max_rms": 0.006, "detect_width": 960, "interval_frames": 2},
+ "performance": {"opencv_threads": 4}
 }
