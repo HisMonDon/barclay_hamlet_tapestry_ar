@@ -1,6 +1,7 @@
 import io
-import math
-import os
+import copy
+import shutil
+import subprocess
 import tempfile
 import wave
 from pathlib import Path
@@ -136,6 +137,40 @@ class Soundtrack:
     def write(self, path, start=0.0, end=None):
         end = self.end if end is None else min(self.end, end)
         Path(path).write_bytes(wav_bytes(self.samples[round(start * self.rate):round(end * self.rate)], self.rate))
+
+
+def backup_track(original, path):
+    track = copy.copy(original)
+    track.warnings = list(original.warnings)
+    path = Path(path)
+    companion = path.with_suffix(".wav")
+    data = None
+    if companion.exists():
+        try:
+            data = read_wav(companion, original.rate)
+        except (OSError, ValueError, KeyError, wave.Error) as error:
+            track.warnings.append(f"Backup WAV: {error}")
+    if data is None:
+        executable = shutil.which("ffmpeg")
+        if executable is None:
+            try:
+                import imageio_ffmpeg
+                executable = imageio_ffmpeg.get_ffmpeg_exe()
+            except ImportError:
+                pass
+        if executable:
+            result = subprocess.run([executable, "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", str(original.rate),
+                                     "-f", "s16le", "pipe:1"], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if result.returncode == 0 and result.stdout:
+                data = np.frombuffer(result.stdout, "<i2").astype(np.float32) / 32768
+    if data is not None:
+        track.samples = data.copy() if original.p.get("on", True) else np.zeros(len(data), np.float32)
+        track.end = len(data) / track.rate
+        track.silence = min(track.end, original.silence)
+        track.samples[round(track.silence * track.rate):] = 0
+    else:
+        track.warnings.append("Backup has no readable audio; using current timeline mix")
+    return track
 
 
 class AudioPlayer:

@@ -27,11 +27,13 @@ def board(path=CONFIG, paper=None):
 
 
 def default_beats(path=CONFIG):
-    return str(ROOT / read(path).get("beats", "beats_v2.json"))
+    value = Path(read(path).get("beats", "beats_v2.json"))
+    candidate = Path(path).resolve().parent / value
+    return str(candidate if candidate.exists() else ROOT / value)
 
 
 def load(beats_path=None, config_path=CONFIG, paper=None, quality="live"):
-    beats_path = Path(beats_path or default_beats(config_path))
+    beats_path = Path(beats_path or default_beats(config_path)).resolve()
     cfg = read(beats_path)
     cfg.update(board(config_path, paper))
     c = read(config_path)

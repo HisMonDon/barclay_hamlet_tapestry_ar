@@ -1,95 +1,93 @@
-# Hamlet's Tapestry — live AR ink
+# Hamlet's Tapestry
 
-A phone camera looks down at the drawing. Four ArUco markers at its corners give a homography to a flat
-"tapestry space". Ink is computed in tapestry space and composited back onto the live frame. Weaves are drawn in a second layer composited over the ink. Both layers extend past the drawing
-by `overlay_margin`, so content can later be placed on the desk around the board. A virtual camera then crops an animated rectangle of tapestry space and renders it fullscreen.
+A camera tracks four ArUco markers around a hand-drawn Hamlet tapestry. Ink follows the corruption through the play, embroidered weeds emerge from soaked ink, and a gold banner covers the darkness without removing it. At the end, weeds cross onto the desk, the view opens to the whole camera frame, and the image holds in silence.
 
-## Setup
+The default `beats_v2.json` contains B01-B21, 75 seconds and camera keys for every beat. The original `beats.json` is preserved. The included reference is a schematic stand-in; all scene coordinates remain provisional until mapped onto the real scan.
 
-```bash
+## Install and run on Windows
+
+```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install opencv-python numpy
-.venv\Scripts\python make_markers_pdf.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe make_markers_pdf.py
+.\.venv\Scripts\python.exe app.py --camera 0
 ```
 
-Pick the paper in `config.json` (`"paper": "tabloid"` or `"letter"`, always portrait), then regenerate the PDF.
-Print `markers.pdf` on US Letter at **100% / Actual size** and check the 100 mm scale bar. Cut out the four markers and mount them
-upright around the drawing: 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left. The dot marks each marker's inner
-corner. Its black square sits `gap_mm` outside both edges of the drawing.
+Use `--windowed --debug` while setting up. `--camera` also accepts a phone camera stream URL. Defaults for device, capture size, reconnect interval and backend are in `config.json`. Choose `dshow`, `msmf`, `ffmpeg` or `auto` to suit the device. Camera capture runs in a background thread, retains the last image on disconnect and retries automatically. The timeline waits for its first marker lock. After that, the last good homography survives marker loss.
 
-## Run
-
-```bash
-.venv\Scripts\python app.py --camera 0
-```
-
-`--camera` takes a device index, or a stream URL from a phone-webcam app (for example `http://192.168.1.20:4747/video`).
-Other flags: `--capture-size 1920x1080`, `--tone "Oxblood"`, `--windowed`, `--beats other.json`, `--config other.json`.
-
-## config.json
-
-The board lives here and nowhere else. Changing `paper` resizes the drawing, the tapestry aspect, the marker layout
-and the PDF text together.
-
-| Key | Meaning |
-| --- | --- |
-| `paper` | `tabloid` (11 x 17 in, default) or `letter` (8.5 x 11 in). Always portrait |
-| `papers_in` | paper sizes in inches |
-| `marker_mm`, `gap_mm` | marker size and its gap outside the drawing edge |
-| `tapestry_width` | width of tapestry space in px. Height follows the paper aspect |
-| `overlay_margin` | how far the overlay canvas reaches past each edge of the drawing, in drawing widths (default 0.5) |
-
-`tapestry` and `board` inside a beat sheet are ignored.
-
-## Test
-
-```bash
-.venv/bin/python test_pipeline.py
-```
-
-Renders a synthetic camera frame of the board for both paper sizes, then checks tracking, ink, the ghost cap, the
-woven banner and drawing in the desk margin. Frames are written to `test_out/`.
+Pick portrait `tabloid` or `letter` in `config.json` and regenerate `markers.pdf`. Print on US Letter at **100% / Actual size** and verify the 100 mm scale bar. Place marker 0 top-left, 1 top-right, 2 bottom-right and 3 bottom-left, upright with their inner corners facing the drawing. The black squares sit `gap_mm` beyond the drawing edges. At least three markers must be visible to acquire tracking.
 
 | Key | Action |
 | --- | --- |
-| Space | pause / resume |
-| ← / → | step back / forward one beat |
-| R | restart |
-| V | switch between the virtual camera and the full composited camera frame (useful for aiming the phone) |
-| Esc / Q | quit |
+| Space | Pause / resume with synchronized sound |
+| Left / Right | Step one beat backward / forward |
+| R | Restart and play |
+| V | Virtual camera / full composited camera frame |
+| D | Operator debug display, including camera/audio status |
+| B | Start the preloaded backup from its beginning, fullscreen |
+| L | Return to live rendering |
+| Esc / Q | Quit |
 
-At least 3 of the 4 markers must be visible to lock on. Until the first lock, the raw camera image is shown. After
-that, the last good homography is kept whenever detection fails, so a hand over a marker never makes the ink flicker.
+B21 freezes the image and silences audio from 65 seconds. It remains on screen after 75 seconds until a control is used. Operator text is hidden unless debug is enabled.
 
-## beats.json
+## Render the backup and review it
 
-| Key | Meaning |
-| --- | --- |
-| `ink.tone`, `ink.tones` | ink palettes (`stain`, `front`, `deep`) taken from the reference |
-| `ink.ramp` | `[darkness, colour, alpha]` stops: stain halo, then a sharp front, then dried deep ink |
-| `ink.alpha`, `ink.noise` | strength and shape of the fractal noise that makes uneven soaking |
-| `ink.edge` | width of the soft front, in tapestry-width units. `1.0` gives the bare `clamp((t − t0)·v − d + α·noise)` |
-| `ink.caps` | ellipses where ink tops out at a pale tint instead of going black (the ghost). `ink.resist` is read the same way |
-| `ink.cap` | defaults for every cap: `max` (strength of the tint at full ink, 0-1, default 1) and `tint` (default `#9fb4dc`, cool blue-grey) |
-| `camera` | easing, zoom dip on long moves, and idle drift |
-| `beats[]` | `name`, `duration`, `desc`, `camera` keys, `seeds` and `weaves` |
+```powershell
+.\.venv\Scripts\python.exe render.py --mode board --out renders/backup.mp4
+.\.venv\Scripts\python.exe app.py --play-backup
+```
 
-All positions are normalised 0–1 (`x` across the width, `y` down the height). Distances and speeds are measured in
-tapestry widths. Times inside a beat are seconds from that beat's start.
+This writes a 1920x1080, 30 fps, 75-second MP4, a matching WAV and a PNG contact sheet with one frame per beat. `imageio-ffmpeg` supplies ffmpeg for audio muxing when a system ffmpeg is absent. The MP4 uses lossless ALAC audio to preserve exact silence in B21. The WAV remains available as the live player's audio companion. Keep the WAV beside the MP4. If muxing is unavailable, the renderer explicitly reports the separate video and audio files.
 
-- **Camera key:** `{t, x, y, w}`. `(x, y)` is the crop centre and `w` is the crop width. The crop height follows the
-  output aspect.
-- **Seed:** `{x, y, t, speed}`. Optional fields:
-  - `radius` stops growth.
-  - `bounds` `[x0, y0, x1, y1]` clips the seed to one bay.
-  - `alpha` overrides the noise strength.
-  - `lift: true` turns the seed into a weave over its `bounds`, at its `speed`.
-- **Cap:** `{x, y, rx, ry}` ellipse. Optional `angle`, `feather`, `max`, `tint`.
-- **Weave:** `{t, bounds}`. Woven over the ink, never erasing it: rows of thread go in top to bottom, the shuttle
-  alternates direction, and the black stays visible between rows and where the weft dips under the warp. Optional
-  `speed` (rows advance in tapestry widths per second), `colour`, `pitch` (row height), `fill` (thread share of a row),
-  `warp` (over/under period) and `duty` (share of the period where the weft is on top).
+```powershell
+.\.venv\Scripts\python.exe render.py --mode still --source assets/scan.png --beats beats_mapped.json --out renders/scan_backup.mp4
+.\.venv\Scripts\python.exe render.py --mode board --source assets/scan.png --beats beats_mapped.json --sheet-only --sheet review/scan_sheet.png
+.\.venv\Scripts\python.exe render.py --start 52 --end 65 --out renders/banner_spill.mp4
+.\.venv\Scripts\python.exe render.py --times 5.1,5.32,18.8,43.5,57.4,65 --frames renders/details
+```
 
-`beats.json` was extracted from the reference animation. It has 20 three-second beats, its 40 camera keyframes, every
-ink source (including the 170 meadow flowers, reproduced exactly from its seeded RNG), a top-down "tide" that ends with
-the whole tapestry black, and the colour palette.
+`still` uses a flat scan; `board` places it on a synthetic tracked board and desk; `video` uses a recorded camera clip and its marker detections. The synthetic board is suitable for rehearsing the effect, but the best backup for the classroom uses a recorded view of the real board:
+
+```powershell
+.\.venv\Scripts\python.exe render.py --mode video --source assets/board_recording.mp4 --beats beats_mapped.json --out renders/backup.mp4
+```
+
+`--quality render` uses full-resolution composition; `--quality live` matches the optimized live path. `--no-audio`, `--no-atmosphere`, `--fps`, `--size`, `--start`, `--end`, `--sheet-only` and `--frames` support focused reviews. A clip's audio starts at the same timeline position as its picture.
+
+## Remap the real drawing
+
+Crop and straighten the scan to the drawing edges, with no board or desk inside it, then run:
+
+```powershell
+.\.venv\Scripts\python.exe editor.py assets/scan.png --beats beats_v2.json --out beats_mapped.json
+.\.venv\Scripts\python.exe app.py --beats beats_mapped.json --camera 0 --debug --windowed
+```
+
+Select a beat in the right panel. Click the scan to add a seed; drag a handle to move it; right-drag a selected seed to set radius. The item list includes prop anchors, falling-petal destinations, wicking paths, weed origins and camera centers. Moving a seed also translates its wicking path. Enter seed time, speed, radius and a named clip region in the fields, then Apply.
+
+Choose `ghost` or a bounds region, press **P**, click its polygon vertices, and press **Enter**. Drag existing polygon vertices to refine the outline. The region button assigns the selected region to a seed. Esc cancels an unfinished polygon. Delete removes a selected seed when the scan canvas has focus. Ctrl+Z undoes; Ctrl+S saves atomically and keeps the previous file as `.json.bak`. Adjusted objects are marked `provisional: false`.
+
+Scrub the bottom slider for an effect preview or press Space with the canvas focused. Preview fields rebuild in the background after edits. It is intentionally lower resolution than final export. Polygon names and beat timing remain intact when saving; the editor preserves other beat data.
+
+Before presenting, align the vial hand/ear, the joined hands, the ghost polygon and command thread, river/petal landings, blade path, cup, rolling crown and floor. Adjust camera widths/heights numerically in the beat file if the drawing's composition needs different close-ups. Check the gold-detection thresholds against the actual pencils or paint. Confirm the desk spill fits the real camera view and marker spacing.
+
+## Configuration and sound
+
+Board dimensions, paper size and overlay margin live in `config.json`. Story-specific seeds, props, camera keys, regions, ink, embroidery and banner settings live in the beat file. Positions are normalized 0-1 across the drawing; radii and speeds are measured in drawing widths. A camera key uses center `x,y` and width `w`, or full-drawing-height fraction `h`; `f: 1` opens to the full camera frame.
+
+The live preset processes ink at 40% of tapestry resolution, embroidery at 70%, and composition at 1056x594, then outputs 1920x1080. These independent scales are editable under `quality.live`. Tracking runs every third rendered frame. The render preset retains full-resolution composition and finer effect canvases. `performance.opencv_threads` avoids oversubscribing the CPU.
+
+Each atmosphere effect has an `on` switch. Grain is deterministic, candlelight evolves slowly and all atmospheric motion stops in the final hold. Weeds reveal along precomputed stitch lengths and root only after the configured soak delay. Banner threads sit above the original ink; later weeds sit above the weave.
+
+Place original or licensed PCM WAV recordings in `assets/sfx/` named `crackle.wav`, `drip.wav`, `seep.wav`, `creak.wav` and `shuttle.wav`. Missing or unreadable files use deterministic synthesized placeholders. No audio is downloaded. Audio uses Windows' built-in [winsound file playback](https://docs.python.org/3/library/winsound.html), mixed into one timeline soundtrack so pause, seeking and restart keep the cues aligned. `--no-audio` disables it. Test speaker levels in the room; placeholders are a starting point for subtle diegetic sound.
+
+## Validation and live-demo limits
+
+```powershell
+.\.venv\Scripts\python.exe test_pipeline.py
+.\.venv\Scripts\python.exe benchmark.py --frames 90
+```
+
+Tests cover both paper sizes, tracking and freeze on loss, ghost protection, story order, permanent ink, banner gaps and row reveal, deterministic embroidery, soaked roots, desk spill, audio timing and silence, editor round trips, backup seeking and camera reconnect. Images and benchmark JSON are written under `test_out/`. `REVIEW.md` records the visual reviews; final sheets are under `review/`.
+
+Performance is machine- and camera-dependent. Benchmarking uses a synthetic 1080p input and includes marker tracking and the rendering path, but excludes physical camera driver latency, GUI presentation and real audio hardware. Occasional frames can exceed 33 ms even when segment averages exceed 30 fps. A frozen homography cannot compensate for a board being moved while its markers are hidden. Camera drivers that block on a read cannot block the projector loop, but may delay reconnection. Keep a rehearsed backup MP4 and its WAV beside it, test B before class, and use the actual classroom laptop/projector for the final check.

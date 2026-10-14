@@ -29,14 +29,15 @@ def main():
                "output": [renderer.ow, renderer.oh], "composition": renderer.comp.work,
                "startup_s": round(time.perf_counter() - start, 3), "segments": []}
     for x in (4.0, 10.0, 27.0, 45.0, 53.0, 60.0, 66.0):
+        segment = x
         samples = []
-        for k in range(args.frames + 5):
+        for x in range(args.frames + 5):
             start = time.perf_counter()
-            renderer.render(frame, x + k / 30)
+            renderer.render(frame, segment + x / 30)
             elapsed = (time.perf_counter() - start) * 1000
-            if k >= 5:
+            if x >= 5:
                 samples.append(elapsed)
-        item = {"start_s": x, "mean_ms": round(float(np.mean(samples)), 2), "p95_ms": round(float(np.percentile(samples, 95)), 2),
+        item = {"start_s": segment, "mean_ms": round(float(np.mean(samples)), 2), "p95_ms": round(float(np.percentile(samples, 95)), 2),
                 "fps": round(1000 / float(np.mean(samples)), 2)}
         results["segments"].append(item)
         print(json.dumps(item), flush=True)

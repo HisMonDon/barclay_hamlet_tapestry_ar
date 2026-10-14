@@ -121,12 +121,12 @@ def soundtrack(renderer, path, start=0.0, end=None):
     return path
 
 
-def mux(video, audio, out):
+def mux(video, audio, out, codec="alac"):
     exe = ffmpeg_path()
     if not exe or audio is None:
         return False
     cmd = [exe, "-y", "-loglevel", "error", "-i", str(video), "-i", str(audio), "-c:v", "libx264", "-pix_fmt", "yuv420p",
-           "-crf", "18", "-preset", "medium", "-c:a", "aac", "-b:a", "192k", "-shortest", str(out)]
+           "-crf", "18", "-preset", "medium", "-c:a", codec, "-shortest", str(out)]
     return subprocess.run(cmd).returncode == 0
 
 
@@ -206,22 +206,30 @@ def main():
     if args.mode == "video":
         src.cap.set(cv2.CAP_PROP_POS_MSEC, args.start * 1000.0)
     t0 = time.perf_counter()
+    held = None
+    hold = tl.at("B21") if "B21" in tl.ids else tl.end
     for k in range(n):
         t = args.start + k / args.fps
         frame, H = src.get(t)
-        writer.write(renderer.frame(frame, H, t))
+        if t < hold or held is None:
+            image = renderer.frame(frame, H, t)
+            if t >= hold:
+                held = image.copy()
+        else:
+            image = held
+        writer.write(image)
         if k % 150 == 0:
             print(f"  {t:6.2f} s  {k + 1}/{n}")
     writer.release()
     dt = time.perf_counter() - t0
     print(f"rendered {n} frames in {dt:.1f} s ({dt / n * 1000:.1f} ms/frame)")
     wav = None if args.no_audio else soundtrack(renderer, out.with_suffix(".wav"), args.start, end)
-    if wav and mux(raw, wav, out):
+    if wav and mux(raw, wav, out, cfg.get("sound", {}).get("export_codec", "alac")):
         raw.unlink()
         print(f"wrote {out} with audio")
     else:
         raw.replace(out)
-        print(f"wrote {out}" + (f" and {wav} (ffmpeg not found, audio not muxed)" if wav else ""))
+        print(f"wrote {out}" + (f" and {wav} (ffmpeg unavailable or mux failed; audio not muxed)" if wav else ""))
     if src.cap is not None:
         src.cap.release()
 

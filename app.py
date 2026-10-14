@@ -11,7 +11,7 @@ from config import CONFIG, default_beats, load
 from timeline import Timeline
 from tracking import BoardTracker
 from live import BackupPlayer, ResilientCamera, open_camera
-from sound import AudioPlayer, Soundtrack
+from sound import AudioPlayer, Soundtrack, backup_track
 from config import resolve
 
 KEYS_LEFT = {2424832, 65361, 63234, 81}
@@ -89,7 +89,10 @@ def main():
         raise SystemExit("Backup video is unavailable; render it first with render.py")
     if not args.play_backup:
         camera.start()
-    audio = AudioPlayer(Soundtrack(cfg, timeline, renderer.scene))
+    track = Soundtrack(cfg, timeline, renderer.scene)
+    live_audio = AudioPlayer(track)
+    backup_audio = AudioPlayer(backup_track(track, backup.path)) if backup.ready else live_audio
+    audio = backup_audio if using_backup else live_audio
 
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
     if not args.windowed:
@@ -131,6 +134,8 @@ def main():
                     lines.append("Looking for markers 0-3: " + (", ".join(map(str, renderer.tracker.seen)) or "none"))
                 if audio.error:
                     lines.append("Audio: " + audio.error)
+                if audio.soundtrack.warnings:
+                    lines.append(audio.soundtrack.warnings[-1])
                 lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s" + ("  " + notice if notice else ""))
             if lines:
                 hud(out, lines)
@@ -158,12 +163,16 @@ def main():
                 debug = not debug
             elif key in (ord("b"), ord("B")):
                 if backup.ready:
+                    audio.stop()
+                    audio = backup_audio
                     using_backup, t, playing = True, 0.0, True
                     cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
                     force = True
                 else:
                     notice = "Backup unavailable"
             elif key in (ord("l"), ord("L")):
+                audio.stop()
+                audio = live_audio
                 using_backup = False
                 if camera.thread is None:
                     camera.start()
@@ -175,7 +184,9 @@ def main():
             if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
                 break
     finally:
-        audio.close()
+        live_audio.close()
+        if backup_audio is not live_audio:
+            backup_audio.close()
         camera.close()
         backup.close()
         cv2.destroyAllWindows()

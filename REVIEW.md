@@ -89,3 +89,36 @@ Changes:
 - Found an antialiasing leak at the left edge of unreached banner rows when changing overlay resolution. Gated each row by its start time. This preserves row-by-row weaving at every quality setting.
 - Added an editor with background preview rebuilding. The model round-trip tests cover path translation, region polygons, undo and backups; a real Tk window smoke test also passed.
 - Performance profiling found repeated rendering of the settled crown and finished banner. Cached those states. Live composition uses a configurable 0.67 working scale and resizes to the requested 1920x1080 output; export quality retains full-resolution composition.
+
+## Round 3: final render quality and live preset
+`review/round3_sheet.png` and `review/round3_live_sheet.png`, both 21-beat synthetic board contact sheets, visually inspected side by side.
+- The full-quality image preserves the line drawing beneath the black ink; the ghost remains a small, cool light shape. The river turns black before the meadow is overrun. The gold remains visibly separated by dark gaps, and later plants cover parts of it.
+- The live image softens tiny stitch and ink-front details. This is acceptable at the wide desk reveal: the corruption, protected ghost, gold cover and spreading runners remain clear. The live and offline arrival grids produce slightly different small branch shapes, while preserving event order.
+- The reference figures are deliberately schematic. Their flatness is a limitation of the stand-in image; the actual hand drawing will supply the intended richness. No effect can substitute for precise remapping onto it.
+- Optimized premultiplied-alpha blending with OpenCV arithmetic. Final live scales: ink 0.40, embroidery 0.70, composition 0.55, then 1920x1080 output. Tracking every third frame. Full export keeps composition at 1920x1080.
+- Measured sequential rendering with synthetic 1920x1080 camera input, four OpenCV threads, and tracking included; no competing render job was running. Startup with a warm arrival cache: 2.445 s.
+
+| Segment start | Mean ms | p95 ms | Mean fps |
+| --- | --- | --- | --- |
+| 4s | 24.41 | 32.73 | 40.97 |
+| 10s | 13.31 | 19.34 | 75.13 |
+| 27s | 21.05 | 26.91 | 47.51 |
+| 45s | 26.98 | 36.46 | 37.07 |
+| 53s | 20.08 | 25.85 | 49.81 |
+| 60s | 29.79 | 39.12 | 33.57 |
+| 66s | 18.13 | 25.38 | 55.16 |
+
+These numbers exclude camera-driver latency, window presentation and actual sound-device latency. They are not a guarantee for the classroom laptop; the heaviest sampled segment exceeds 33 ms in its slowest frames. The preloaded MP4 is the practical fallback.
+
+## Round 4: encoded backup and motion audit
+
+Rendered and inspected `review/round4_sheet.png`, then decoded the actual MP4 to `review/encoded_sheet.png` and inspected that too. Inspected temporal montages `vial_motion.png`, `crown_motion.png` and `ending_motion.png`; focused MP4 clips are in `renders/review_vial.mp4`, `renders/review_crown.mp4` and `renders/review_banner_spill.mp4`.
+
+- Vial: the bead detaches, falls to the ear, and the first bloom follows impact. The reference drawing and tiny vial need careful positioning on the real scan.
+- Crown: its pivot, falling edge-on phase, roll and final ring shape are readable. The old drawn crown remains faintly visible through permanent ink, consistent with the drawing surviving beneath the rot.
+- Ending: the glint progresses across the gold, fails as plants invade, then the view opens to reveal runners beyond all four board edges. The physical desk contrast is legible in the synthetic camera view.
+- Found an export-specific problem: AAC introduced 51 tiny nonzero samples (peak 2/32768) after the silence boundary. Switched the default MP4 audio codec to lossless ALAC and remuxed the backup. Decoded verification now finds exactly 441,000 zero-valued samples in B21. Native Windows playback also passed a silent-device smoke test without an error.
+- The backup is 2,250 frames at 30 fps, 1920x1080, exactly 75 seconds. Full-resolution picture rendering took 186.1 seconds (82.7 ms/frame); compression/muxing adds time.
+- The complete pipeline passes, including both paper sizes and the original beat-file compatibility check. Recorded-camera sampling and matching backup WAV tests pass.
+
+Remaining real-world checks: crop and rectify the real scan, remap all provisional anchors/regions, verify dark-line and gold detection on the actual materials, rehearse the edge spill with the actual camera placement, set speaker levels, and check projector blacks. The laptop benchmark uses synthetic capture; no physical camera disconnect or classroom projector was available for a hardware rehearsal.

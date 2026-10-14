@@ -15,7 +15,7 @@ from tracking import marker_layout
 from atmosphere import Atmosphere
 from editor import EditorModel
 from live import BackupPlayer, ResilientCamera
-from sound import AudioPlayer, Soundtrack, read_wav, wav_bytes
+from sound import AudioPlayer, Soundtrack, backup_track, read_wav, wav_bytes
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "test_out"
@@ -368,6 +368,16 @@ def system_checks(cfg):
         check("backup is preloaded for an instant switch", backup.ready and backup.first is not None)
         check("backup can seek and hold the final frame", backup.frame(0.5).mean() > 60 and backup.frame(5).mean() > 140 and backup.frame(0).mean() < 5)
         backup.close()
+        from render import Source
+        source = Source(SimpleNamespace(cfg=cfg, tracker=SimpleNamespace(update=lambda frame: np.eye(3))), "video", video, (160, 90))
+        selected, H = source.get(0.5)
+        first, H = source.get(0)
+        check("recorded-camera reviews sample the requested timeline time", 70 < selected.mean() < 100 and first.mean() < 5)
+        source.cap.release()
+        audio_path = video.with_suffix(".wav")
+        audio_path.write_bytes(wav_bytes(np.full(track.rate, 0.1, np.float32), track.rate))
+        companion = backup_track(track, video)
+        check("backup playback uses its own matching WAV", len(companion.samples) == track.rate and abs(companion.samples.mean() - 0.1) < 1e-4)
 
     disconnected = threading.Event()
     recovered = threading.Event()

@@ -1,0 +1,14 @@
+{
+  "fps": 30,
+  "size": [
+    1920,
+    1080
+  ],
+  "frames": 2250,
+  "duration_s": 75,
+  "audio_codec": "ALAC",
+  "hold_audio_samples": 441000,
+  "hold_audio_nonzero": 0,
+  "render_frames_s": 186.1,
+  "render_ms_per_frame": 82.7
+}

@@ -82,7 +82,7 @@ class EditorModel:
         handles = []
         for kind in ("seeds", "props", "weeds", "camera"):
             for index, item in enumerate(self.data["beats"][beat].get(kind, [])):
-                label = f"{kind[:-1]} {index + 1}"
+                label = f"{kind.rstrip('s')} {index + 1}"
                 if "x" in item and "y" in item:
                     handles.append((label, kind, item, None, (item["x"], item["y"])))
                 for key in ("hand", "ear", "at", "from", "to"):
