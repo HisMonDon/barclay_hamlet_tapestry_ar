@@ -62,9 +62,8 @@ class Scene:
         self._saved.append((rows, cols, dst.copy()))
         a = dst if under else rgba
         b = rgba if under else dst
-        k = (255 - a[..., 3:4].astype(np.uint16))
-        out = a.astype(np.uint16) + (b.astype(np.uint16) * k + 127) // 255
-        self.over[rows, cols] = np.minimum(out, 255).astype(np.uint8)
+        clear = cv2.subtract(255, a[..., 3])
+        self.over[rows, cols] = cv2.add(a, cv2.multiply(b, cv2.merge([clear, clear, clear, clear]), scale=1 / 255))
 
     def banner_layer(self, t):
         out = []

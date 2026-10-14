@@ -1,5 +1,7 @@
 import sys
 import time
+import tempfile
+import threading
 from pathlib import Path
 
 import cv2
@@ -10,6 +12,10 @@ from config import load
 from scene import Scene
 from timeline import Timeline
 from tracking import marker_layout
+from atmosphere import Atmosphere
+from editor import EditorModel
+from live import BackupPlayer, ResilientCamera
+from sound import AudioPlayer, Soundtrack, read_wav, wav_bytes
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "test_out"
@@ -278,6 +284,131 @@ def camera_checks(cfg, renderer, frame, H):
     M = renderer.comp.view(s21 + 1.0, H, frame.shape)
     fit = renderer.comp.view(s21 + 1.0, H, frame.shape, virtual=False)
     check("full camera frame matches the V view", np.allclose(M, fit))
+    renderer.tracker.update(frame)
+    before = renderer.tracker.H.copy()
+    renderer.tracker.update(np.zeros_like(frame))
+    check("tracking freezes on marker loss", np.array_equal(before, renderer.tracker.H))
+
+
+def system_checks(cfg):
+    import copy
+    from types import SimpleNamespace
+    tl = Timeline(cfg)
+    sync_time = tl.at("B02", 2.32)
+    scene = SimpleNamespace(cues=lambda: [("vial", sync_time)], weaves=[])
+    track = Soundtrack(cfg, tl, scene)
+    check("drip stays synchronized to the vial impact", any(name == "drip" and abs(start - sync_time) < 1e-6 for name, start, end in track.events))
+    seep = next(x for x in track.events if x[0] == "seep")
+    check("seep stops abruptly at the banner", abs(seep[2] - tl.at("B18")) < 1 / track.rate)
+    check("final hold is sample-exact silence", np.count_nonzero(track.samples[round(tl.at("B21") * track.rate):]) == 0)
+    check("soundtrack contains sound without clipping", 0.01 < abs(track.samples).max() < 1)
+    silent = copy.deepcopy(cfg)
+    silent["sound"]["on"] = False
+    check("sound switch produces silence", not Soundtrack(silent, tl, scene).samples.any())
+
+    class Backend:
+        SND_ASYNC, SND_FILENAME, SND_NODEFAULT = 1, 2, 4
+
+        def __init__(self):
+            self.calls = []
+
+        def PlaySound(self, path, flags):
+            self.calls.append((path, flags))
+
+    backend = Backend()
+    player = AudioPlayer(track, backend)
+    try:
+        player.sync(5, True, 10)
+        first = len(backend.calls)
+        player.sync(5.03, True, 10.03)
+        check("audio does not restart each video frame", len(backend.calls) == first)
+        player.sync(5.03, False, 10.04)
+        check("pause stops audio immediately", backend.calls[-1][0] is None)
+        player.sync(30, True, 11, force=True)
+        tail = read_wav(backend.calls[-1][0], track.rate)
+        check("step and resume use the matching audio position", len(tail) == len(track.samples) - 30 * track.rate and np.max(abs(tail[:1000] - track.samples[30 * track.rate:30 * track.rate + 1000])) < 1e-4)
+        player.sync(65, True, 12)
+        check("B21 stops native playback", backend.calls[-1][0] is None)
+    finally:
+        player.close()
+
+    off = copy.deepcopy(cfg)
+    for x in off["atmosphere"].values():
+        x["on"] = False
+    image = np.full((90, 160, 3), 150, np.uint8)
+    check("atmosphere switches leave pixels unchanged", np.array_equal(Atmosphere(off, (160, 90)).apply(image, 8), image))
+    atmosphere = Atmosphere(cfg, (160, 90))
+    a, b = atmosphere.apply(image, 8), atmosphere.apply(image, 8)
+    check("atmosphere is deterministic on seek", np.array_equal(a, b))
+    check("atmosphere stops evolving during final hold", np.array_equal(atmosphere.apply(image, 65), atmosphere.apply(image, 75)))
+    check("candlelight changes gently between frames", max(abs(atmosphere.level(x + 1 / 30) - atmosphere.level(x)) for x in np.arange(0, 65, 0.1)) < 0.06)
+
+    with tempfile.TemporaryDirectory() as folder:
+        destination = Path(folder) / "mapped.json"
+        model = EditorModel(cfg["beats_path"])
+        seed = model.add_seed(0, 0.2, 0.3, 0.1, 0.04)
+        seed["path"] = [[0.2, 0.3], [0.3, 0.4]]
+        model.move(seed, None, (0.4, 0.5))
+        check("moving a seed also moves its wicking path", np.allclose(seed["path"], [[0.4, 0.5], [0.5, 0.6]]))
+        model.set_region("ghost", [[0.4, 0.1], [0.6, 0.1], [0.5, 0.3]])
+        model.save(destination)
+        mapped = load(destination)
+        check("editor saves seeds and ghost polygons without losing props", mapped["beats"][0]["seeds"][-1]["x"] == 0.4 and len(mapped["regions"]["ghost"]["polygon"]) == 3 and mapped["beats"][1]["props"] == cfg["beats"][1]["props"])
+        model.save()
+        check("editor preserves the previous save as a backup", destination.with_suffix(".json.bak").exists())
+        model.undo()
+        check("editor undo restores region geometry", len(model.data["regions"]["ghost"]["polygon"]) > 3)
+
+        video = Path(folder) / "backup.mp4"
+        writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"mp4v"), 30, (160, 90))
+        for x in range(30):
+            writer.write(np.full((90, 160, 3), x * 6, np.uint8))
+        writer.release()
+        backup = BackupPlayer(video)
+        check("backup is preloaded for an instant switch", backup.ready and backup.first is not None)
+        check("backup can seek and hold the final frame", backup.frame(0.5).mean() > 60 and backup.frame(5).mean() > 140 and backup.frame(0).mean() < 5)
+        backup.close()
+
+    disconnected = threading.Event()
+    recovered = threading.Event()
+    released = []
+    attempts = []
+
+    class Capture:
+        def __init__(self, number):
+            self.number, self.reads = number, 0
+
+        def isOpened(self):
+            return True
+
+        def read(self):
+            self.reads += 1
+            if self.number == 0 and self.reads > 1:
+                disconnected.set()
+                return False, None
+            if self.number > 0:
+                recovered.set()
+            time.sleep(0.003)
+            return True, np.full((10, 10, 3), 60 + self.number, np.uint8)
+
+        def release(self):
+            released.append(self.number)
+
+    def opener(source, width, height, settings):
+        attempts.append(len(attempts))
+        return Capture(attempts[-1])
+
+    camera = ResilientCamera("0", (10, 10), {"reconnect_s": 0.15, "stale_s": 1}, opener=opener).start()
+    try:
+        lost = disconnected.wait(2)
+        frame, connected = camera.latest()
+        check("camera loss retains the last good image", lost and frame is not None and frame.mean() == 60)
+        ok = recovered.wait(2)
+        time.sleep(0.02)
+        frame, connected = camera.latest()
+        check("camera reconnects without restarting the app", ok and connected and frame.mean() == 61 and 0 in released)
+    finally:
+        camera.close()
 
 
 def main():
@@ -290,6 +421,7 @@ def main():
     flagged = all(s.get("provisional") for b in default["beats"] for k in ("seeds", "camera") for s in b.get(k, []))
     check("every coordinate is marked provisional", flagged and all(r.get("provisional", True) is not None
                                                                     for r in default["regions"].values()))
+    system_checks(default)
     run(default)
     run(load(paper="letter"))
     old = load(str(ROOT / "beats.json"))

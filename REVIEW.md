@@ -77,3 +77,15 @@ Changes:
 - Knot probability cut by a third.
 - Dry ink density 0.93 to 0.95, dry tone darker (#1a1410).
 - B16 camera recentred on the tapestry (y 0.70 to 0.74).
+
+## Round 2: sound, atmosphere and remapping
+
+`review/round2_sheet.png`, rendered in synthetic board mode at all 21 beats and visually inspected.
+
+- The chain remains readable: crown to queen, the protected ghost, the command thread, and the black river each have distinct framing. The fine line work survives in the ink.
+- The first embroidered shoots read clearly against old garden ink. The final runners visibly cross the white board onto the brown desk. The banner still shows black through its gaps.
+- Warmth, vignette and grain were kept restrained: flicker amplitude 0.018, grain 0.7 intensity levels, vignette strength 0.14. None should compete with the drop or ghost.
+- Audio is generated deterministically from the same cue times, with the drip tied to actual vial impact and the seep ending at the banner. Every sample from 65 seconds onward is zero. Pause and seek are checked through a fake native backend.
+- Found an antialiasing leak at the left edge of unreached banner rows when changing overlay resolution. Gated each row by its start time. This preserves row-by-row weaving at every quality setting.
+- Added an editor with background preview rebuilding. The model round-trip tests cover path translation, region polygons, undo and backups; a real Tk window smoke test also passed.
+- Performance profiling found repeated rendering of the settled crown and finished banner. Cached those states. Live composition uses a configurable 0.67 working scale and resizes to the requested 1920x1080 output; export quality retains full-resolution composition.
