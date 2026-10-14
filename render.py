@@ -25,6 +25,46 @@ def ffmpeg_path():
         return None
 
 
+class VideoWriter:
+    def __init__(self, path, fps, size, settings=None):
+        settings = settings or {}
+        self.process = None
+        self.writer = None
+        executable = ffmpeg_path()
+        if executable:
+            width, height = size
+            command = [executable, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{width}x{height}",
+                       "-r", str(fps), "-i", "pipe:0", "-an", "-c:v", "libx264", "-crf", str(settings.get("video_crf", 16)),
+                       "-preset", settings.get("video_preset", "medium"), "-pix_fmt", "yuv420p", str(path)]
+            self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            self.writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+
+    def isOpened(self):
+        return self.process.poll() is None if self.process is not None else self.writer.isOpened()
+
+    def write(self, frame):
+        if self.process is None:
+            self.writer.write(frame)
+            return
+        try:
+            self.process.stdin.write(np.ascontiguousarray(frame).tobytes())
+        except BrokenPipeError as error:
+            message = self.process.stderr.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Video encoding failed: {message}") from error
+
+    def release(self):
+        if self.process is None:
+            self.writer.release()
+            return
+        self.process.stdin.close()
+        self.process.stdin = None
+        output, error = self.process.communicate()
+        if self.process.returncode:
+            raise RuntimeError(f"Video encoding failed: {error.decode('utf-8', errors='replace')}")
+
+
 def load_source(cfg, path):
     p = resolve(cfg, path or cfg.get("scan", "assets/reference_tapestry.png"))
     img = cv2.imread(str(p), cv2.IMREAD_COLOR)
@@ -59,6 +99,9 @@ class Source:
                 self.H = renderer.tracker.update(self.frame)
             if self.H is None:
                 self.H = truth
+            quality = cfg.get("quality", {}).get(cfg.get("quality_name", "render"), {})
+            if quality.get("direct_scan", True):
+                renderer.comp.set_source_artwork(tapestry)
 
     def get(self, t=None):
         if self.cap is None:
@@ -125,8 +168,8 @@ def mux(video, audio, out, codec="alac"):
     exe = ffmpeg_path()
     if not exe or audio is None:
         return False
-    cmd = [exe, "-y", "-loglevel", "error", "-i", str(video), "-i", str(audio), "-c:v", "libx264", "-pix_fmt", "yuv420p",
-           "-crf", "18", "-preset", "medium", "-c:a", codec, "-shortest", str(out)]
+    cmd = [exe, "-y", "-loglevel", "error", "-i", str(video), "-i", str(audio), "-c:v", "copy",
+           "-c:a", codec, "-shortest", str(out)]
     return subprocess.run(cmd).returncode == 0
 
 
@@ -138,7 +181,7 @@ def main():
     ap.add_argument("--beats", default=None)
     ap.add_argument("--config", default=str(CONFIG))
     ap.add_argument("--quality", default="render", choices=["render", "live"])
-    ap.add_argument("--out", default=str(ROOT / "renders" / "backup.mp4"))
+    ap.add_argument("--out", default=None)
     ap.add_argument("--sheet", default=None, help="contact sheet path (default next to --out)")
     ap.add_argument("--frames", default=None, help="also save the contact-sheet frames full size into this folder")
     ap.add_argument("--sheet-only", action="store_true", help="render only the contact sheet")
@@ -164,7 +207,7 @@ def main():
     tl = renderer.timeline
     size = tuple(int(v) for v in args.size.lower().split("x"))
     src = Source(renderer, args.mode, args.source, size)
-    out = Path(args.out)
+    out = Path(args.out) if args.out else resolve(cfg, cfg.get("backup_video", "renders/backup.mp4"))
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet_path = Path(args.sheet) if args.sheet else out.with_name(out.stem + "_sheet.png")
     sheet_path.parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +243,7 @@ def main():
         ap.error("render range must satisfy 0 <= --start < --end <= timeline duration")
     n = int(np.ceil((end - args.start) * args.fps))
     raw = out.with_name(out.stem + "_video.mp4")
-    writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (renderer.ow, renderer.oh))
+    writer = VideoWriter(raw, args.fps, (renderer.ow, renderer.oh), cfg.get("quality", {}).get(args.quality, {}))
     if not writer.isOpened():
         raise SystemExit("Could not open the MP4 writer")
     if args.mode == "video":

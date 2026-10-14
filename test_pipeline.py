@@ -374,10 +374,52 @@ def system_checks(cfg):
         first, H = source.get(0)
         check("recorded-camera reviews sample the requested timeline time", 70 < selected.mean() < 100 and first.mean() < 5)
         source.cap.release()
+        from compositor import Compositor
+        flat_scene = SimpleNamespace(mult_to_tapestry=lambda: np.eye(3), over_to_tapestry=lambda: np.eye(3))
+        comp = Compositor(cfg, flat_scene)
+        tapestry_width, tapestry_height = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
+        stripes = np.tile(np.repeat(np.array([40, 220], np.uint8), 2), tapestry_width // 2)
+        artwork = np.tile(stripes[None, :, None], (120, 1, 3))
+        coarse = np.full((180, 320, 3), 130, np.uint8)
+        H = np.array([[0.1, 0, 100], [0, 0.1, 0], [0, 0, 1]], np.float64)
+        crop = np.array([[0.2 * tapestry_width / 320, 0, 0.4 * tapestry_width],
+                         [0, 0.2 * tapestry_width / 320, 0.1 * tapestry_height], [0, 0, 1]], np.float64)
+        clear = np.full((1, 1, 3), 255, np.uint8)
+        blurred = comp.compose(coarse, H, H @ crop, (320, 180), clear, None)
+        comp.set_source_artwork(artwork)
+        sharp = comp.compose(coarse, H, H @ crop, (320, 180), clear, None)
+        check("offline close-ups retain scan detail beyond the fake camera resolution", blurred.std() < 1 and sharp.std() > 50,
+              f"contrast {blurred.std():.1f} -> {sharp.std():.1f}")
+        outside = crop.copy()
+        outside[0, 2] = -tapestry_width
+        unchanged = comp.compose(coarse, H, H @ outside, (320, 180), clear, None)
+        check("direct scan rendering leaves the surrounding desk intact", np.array_equal(unchanged, np.full_like(unchanged, 130)))
         audio_path = video.with_suffix(".wav")
         audio_path.write_bytes(wav_bytes(np.full(track.rate, 0.1, np.float32), track.rate))
         companion = backup_track(track, video)
         check("backup playback uses its own matching WAV", len(companion.samples) == track.rate and abs(companion.samples.mean() - 0.1) < 1e-4)
+        from render import VideoWriter, ffmpeg_path, mux
+        encoded = Path(folder) / "encoded.mp4"
+        writer = VideoWriter(encoded, 30, (160, 90), cfg.get("quality", {}).get("render", {}))
+        check("offline video encoder opens", writer.isOpened())
+        for x in range(12):
+            image = np.tile(np.arange(160, dtype=np.uint8)[None, :, None], (90, 1, 3))
+            writer.write(cv2.add(image, x))
+        writer.release()
+        capture = cv2.VideoCapture(str(encoded))
+        count, fps = capture.get(cv2.CAP_PROP_FRAME_COUNT), capture.get(cv2.CAP_PROP_FPS)
+        ok, picture = capture.read()
+        capture.release()
+        check("offline encoder preserves frame count, rate and dimensions", ok and count == 12 and fps == 30 and picture.shape == (90, 160, 3))
+        if ffmpeg_path():
+            soundtrack = Path(folder) / "encoded.wav"
+            soundtrack.write_bytes(wav_bytes(np.zeros(round(0.4 * track.rate), np.float32), track.rate))
+            combined = Path(folder) / "combined.mp4"
+            check("video and lossless audio mux successfully", mux(encoded, soundtrack, combined))
+            capture = cv2.VideoCapture(str(combined))
+            ok, remuxed = capture.read()
+            capture.release()
+            check("audio muxing does not recompress the picture", ok and np.array_equal(picture, remuxed))
 
     disconnected = threading.Event()
     recovered = threading.Event()

@@ -122,3 +122,15 @@ Rendered and inspected `review/round4_sheet.png`, then decoded the actual MP4 to
 - The complete pipeline passes, including both paper sizes and the original beat-file compatibility check. Recorded-camera sampling and matching backup WAV tests pass.
 
 Remaining real-world checks: crop and rectify the real scan, remap all provisional anchors/regions, verify dark-line and gold detection on the actual materials, rehearse the edge spill with the actual camera placement, set speaker levels, and check projector blacks. The laptop benchmark uses synthetic capture; no physical camera disconnect or classroom projector was available for a hardware rehearsal.
+
+## Follow-up: ghost command thread and blurry close-ups
+
+The user's screenshot exposed a quality failure missed in the earlier full contact sheets: the synthetic camera reduced the drawing to roughly 400 pixels wide before the virtual camera enlarged its bays. A 1080p output file therefore contained soft, enlarged source pixels. The stitched command thread also read as a heavy dashed annotation.
+
+- Kept the creative meaning of the thread (the ghost's command reaching Hamlet), reduced its width from 0.65 to 0.28, dimmed its cool grey and narrowed the gaps. It now reads as a fine thread.
+- Synthetic board exports now project the original scan directly into the final view before ink and embroidery, preserving its native detail while keeping the desk scene. Real live-camera rendering is unaffected by that offline-only replacement.
+- Removed the lossy intermediate MP4 encoding pass. ffmpeg now receives original BGR frames and encodes H.264 once at configurable CRF 16; sound muxing copies the encoded picture.
+- Visually inspected `review/quality_comparison.png`: previous encoded frame on the left, corrected render on the right. Faces, arch outlines, cloth grain and the ghost's outline are visibly sharper. The included schematic reference art is still a placeholder for the real scan.
+- Regression checks confirm that close-up contrast survives even when the synthetic camera contains no corresponding fine detail, desk pixels outside the drawing stay intact, and adding audio does not change decoded picture pixels. Full pipeline passes.
+
+The regenerated `renders/backup_sharp.mp4` is now the configured default for no-camera playback. Decoded the actual new video for the final before/after comparison; verified 2,250 frames at 30 fps and exactly 441,000 zero-valued audio samples in B21. Picture rendering and single-pass encoding took 224.4 seconds (99.7 ms/frame).

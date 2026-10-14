@@ -306,9 +306,12 @@
      "kind": "thread",
      "t": 0.9,
      "dur": 1.8,
-     "colour": "#c3cad1",
+     "colour": "#aab7c3",
      "path": [[0.512, 0.15], [0.47, 0.2], [0.4, 0.255], [0.31, 0.29], [0.235, 0.305], [0.198, 0.312]],
-     "provisional": true
+     "provisional": true,
+     "width": 0.28,
+     "dash": 0.65,
+     "gap": 0.04
     }
    ]
   },

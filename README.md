@@ -33,7 +33,7 @@ B21 freezes the image and silences audio from 65 seconds. It remains on screen a
 ## Render the backup and review it
 
 ```powershell
-.\.venv\Scripts\python.exe render.py --mode board --out renders/backup.mp4
+.\.venv\Scripts\python.exe render.py --mode board --out renders/backup_sharp.mp4
 .\.venv\Scripts\python.exe app.py --play-backup
 ```
 
@@ -49,7 +49,7 @@ This writes a 1920x1080, 30 fps, 75-second MP4, a matching WAV and a PNG contact
 `still` uses a flat scan; `board` places it on a synthetic tracked board and desk; `video` uses a recorded camera clip and its marker detections. The synthetic board is suitable for rehearsing the effect, but the best backup for the classroom uses a recorded view of the real board:
 
 ```powershell
-.\.venv\Scripts\python.exe render.py --mode video --source assets/board_recording.mp4 --beats beats_mapped.json --out renders/backup.mp4
+.\.venv\Scripts\python.exe render.py --mode video --source assets/board_recording.mp4 --beats beats_mapped.json --out renders/backup_sharp.mp4
 ```
 
 `--quality render` uses full-resolution composition; `--quality live` matches the optimized live path. `--no-audio`, `--no-atmosphere`, `--fps`, `--size`, `--start`, `--end`, `--sheet-only` and `--frames` support focused reviews. A clip's audio starts at the same timeline position as its picture.
@@ -75,7 +75,7 @@ Before presenting, align the vial hand/ear, the joined hands, the ghost polygon 
 
 Board dimensions, paper size and overlay margin live in `config.json`. Story-specific seeds, props, camera keys, regions, ink, embroidery and banner settings live in the beat file. Positions are normalized 0-1 across the drawing; radii and speeds are measured in drawing widths. A camera key uses center `x,y` and width `w`, or full-drawing-height fraction `h`; `f: 1` opens to the full camera frame.
 
-The live preset processes ink at 40% of tapestry resolution, embroidery at 70%, and composition at 1056x594, then outputs 1920x1080. These independent scales are editable under `quality.live`. Tracking runs every third rendered frame. The render preset retains full-resolution composition and finer effect canvases. `performance.opencv_threads` avoids oversubscribing the CPU.
+The live preset processes ink at 40% of tapestry resolution, embroidery at 70%, and composition at 1056x594, then outputs 1920x1080. These independent scales are editable under `quality.live`. Tracking runs every third rendered frame. The render preset retains full-resolution composition and finer effect canvases. Synthetic board exports project the original scan directly into each final view, preserving close-up detail instead of enlarging a downsampled fake camera image. Video is encoded once to H.264; adding audio copies that picture stream without recompression. `quality.render.direct_scan`, `video_crf` and `video_preset` control this path. `performance.opencv_threads` avoids oversubscribing the CPU.
 
 Each atmosphere effect has an `on` switch. Grain is deterministic, candlelight evolves slowly and all atmospheric motion stops in the final hold. Weeds reveal along precomputed stitch lengths and root only after the configured soak delay. Banner threads sit above the original ink; later weeds sit above the weave.
 

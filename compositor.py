@@ -40,6 +40,12 @@ class Compositor:
         self.mult_inv = np.linalg.inv(scene.mult_to_tapestry())
         self.over_inv = np.linalg.inv(scene.over_to_tapestry())
         self.atmosphere = Atmosphere(cfg, self.work)
+        self.source_artwork = None
+        self.source_artwork_inv = None
+
+    def set_source_artwork(self, image):
+        self.source_artwork = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+        self.source_artwork_inv = np.diag([image.shape[1] / self.tw, image.shape[0] / self.th, 1.0])
 
     def crop_matrix(self, t):
         x, y, w, _ = self.timeline.camera_full(t)
@@ -67,6 +73,11 @@ class Compositor:
         else:
             out = cv2.warpPerspective(frame, M, (w, h), flags=INV, borderMode=cv2.BORDER_CONSTANT, borderValue=self.bg)
         Mt = np.linalg.inv(H) @ M
+        if self.source_artwork is not None:
+            art = cv2.warpPerspective(self.source_artwork, self.source_artwork_inv @ Mt, (w, h), flags=INV,
+                                      borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+            clear = cv2.subtract(255, art[..., 3])
+            out = cv2.add(cv2.multiply(out, cv2.merge([clear, clear, clear]), scale=1 / 255), art[..., :3])
         ink = cv2.warpPerspective(mult, self.mult_inv @ Mt, (w, h), flags=INV,
                                   borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
         out = cv2.multiply(out, ink, scale=1.0 / 255.0)

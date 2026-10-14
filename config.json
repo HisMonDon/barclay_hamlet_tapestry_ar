@@ -10,8 +10,16 @@
  "overlay_margin": 0.8,
  "beats": "beats_v2.json",
  "quality": {
-  "live": {"ink_resolution": 0.4, "overlay_scale": 0.7, "output_scale": 1.0, "composite_scale": 0.55},
-  "render": {"ink_resolution": 1.0, "overlay_scale": 1.6, "output_scale": 1.0, "composite_scale": 1.0}
+  "live": {"ink_resolution": 0.4, "overlay_scale": 0.7, "output_scale": 1.0, "composite_scale": 0.55, "direct_scan": false},
+  "render": {
+   "ink_resolution": 1.0,
+   "overlay_scale": 1.6,
+   "output_scale": 1.0,
+   "composite_scale": 1.0,
+   "direct_scan": true,
+   "video_crf": 16,
+   "video_preset": "medium"
+  }
  },
  "atmosphere": {
   "flicker": {"on": true, "amount": 0.018, "warmth": 0.008, "speed": 1.0, "seed": 3},
@@ -43,7 +51,7 @@
   "read_timeout_ms": 1500,
   "open_timeout_ms": 2000
  },
- "backup_video": "renders/backup.mp4",
+ "backup_video": "renders/backup_sharp.mp4",
  "cache_dir": ".cache",
  "debug": {"hud": false},
  "editor": {
