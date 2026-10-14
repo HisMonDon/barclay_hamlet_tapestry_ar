@@ -159,6 +159,7 @@ def run(cfg):
     cv2.imwrite(str(OUT / f"{cfg['board']['paper']}_weaving.png"), renderer.composite(frame, H, *sc.layers(start + 1.2)))
 
     ink_checks(cfg, renderer)
+    weed_checks(cfg, renderer, frame, H, Ht)
     camera_checks(cfg, renderer, frame, H)
 
     t0 = time.perf_counter()
@@ -214,6 +215,51 @@ def ink_checks(cfg, renderer):
     b = fresh.ink.layer(41.7)
     diff = int(np.abs(a.astype(int) - b.astype(int)).max())
     check("tile cache matches a fresh compute", diff <= 2, f"max diff {diff}")
+
+
+def weed_checks(cfg, renderer, frame, H, Ht):
+    sc = renderer.scene
+    tl = renderer.timeline
+    we = sc.weeds
+    T = sc.ink.T
+    soak = cfg["weeds"]["soak_s"]
+    tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
+    b11, s11 = beat(tl, "B11")
+    check("weeds appear only from B11", we.first >= s11 - 1e-6, f"first {we.first:.2f} vs {s11:.2f}")
+    bad = 0
+    for x, y, tr, kind in we.roots:
+        u, v = x / tw, y / th
+        if 0 <= u < 1 and 0 <= v < 1:
+            bad += int(not T[int(v * sc.ink.ih), int(u * sc.ink.iw)] + soak <= tr + 1e-6)
+    check("weeds root only in soaked ink", bad == 0 and len(we.roots) > 50, f"{len(we.roots)} roots, {bad} unsoaked")
+    S = we.S
+    u, v = S[:, 0] / tw, S[:, 1] / th
+    tol = 4.0 / tw
+    inside = (u >= -tol) & (u < 1 + tol) & (v >= -tol) & (v < 1 + tol)
+    strict = (u >= 0) & (u < 1) & (v >= 0) & (v < 1)
+    Ti = T[(v[strict] * sc.ink.ih).astype(int), (u[strict] * sc.ink.iw).astype(int)]
+    late = np.sum(Ti > S[strict, 4] + 0.25)
+    check("stitches grow only over ink that has arrived", late <= 0.002 * strict.sum(), f"{late} of {strict.sum()}")
+    b20, s20 = beat(tl, "B20")
+    out = ~inside
+    check("weeds leave the tapestry only in B20", out.sum() > 200 and S[out, 4].min() >= s20 - 1e-6,
+          f"{int(out.sum())} desk stitches from {S[out, 4].min() if out.any() else 0:.2f}")
+    t = s11 + 2.0
+    growing = np.sum((S[:, 4] < t) & (S[:, 5] > t))
+    done = np.sum(S[:, 5] <= t)
+    check("weeds reveal tip by tip", growing > 0 and done > 0 and growing < 0.5 * (growing + done),
+          f"{growing} growing, {done} complete")
+    again = type(we)(cfg, tl, T, sc.ink_canvas, sc.over_canvas)
+    check("weed growth is deterministic", np.array_equal(again.S, we.S) and np.array_equal(again.K, we.K))
+    end = renderer.composite(frame, H, *sc.layers(tl.end))
+    pts = [to_frame(Ht, cfg, x, y) for x in (-0.4, -0.2, 1.2, 1.4) for y in np.linspace(0.05, 0.95, 12)]
+    pts = [p for p in pts if 0 <= p[0] < FRAME[0] and 0 <= p[1] < FRAME[1]]
+    changed = np.mean([np.abs(sample(end, p, 6) - np.array(DESK)).max() > 12 for p in pts])
+    check("weeds spread onto the desk at the end", changed > 0.15, f"{changed:.2f} of desk probes covered")
+    a = sc.layers(s11 + 1.5)[1].copy()
+    sc.layers(s11 + 2.5)
+    b = sc.layers(s11 + 1.5)[1]
+    check("stepping back redraws weeds exactly", int(np.abs(a.astype(int) - b.astype(int)).max()) <= 1)
 
 
 def camera_checks(cfg, renderer, frame, H):

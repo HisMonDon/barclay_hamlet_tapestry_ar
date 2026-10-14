@@ -7,11 +7,11 @@
  "marker_mm": 60,
  "gap_mm": 8,
  "tapestry_width": 960,
- "overlay_margin": 0.5,
+ "overlay_margin": 0.8,
  "beats": "beats_v2.json",
  "quality": {
   "live": {"ink_resolution": 0.6, "overlay_scale": 1.25, "output_scale": 1.0},
-  "render": {"ink_resolution": 1.0, "overlay_scale": 2.0, "output_scale": 1.0}
+  "render": {"ink_resolution": 1.0, "overlay_scale": 1.6, "output_scale": 1.0}
  },
  "atmosphere": {
   "flicker": {"on": true, "amount": 0.028, "warmth": 0.012, "speed": 1.0, "seed": 3},

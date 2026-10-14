@@ -45,14 +45,15 @@
   "speed": 34.0,
   "stitch_mm": 3.6,
   "width_mm": 0.95,
-  "colours": {"olive": "#5a5a2a", "blackgreen": "#1f2d1d", "rust": "#8c4a24", "deepolive": "#3e4220"},
-  "highlight": {"olive": "#9a9655", "blackgreen": "#4e6a45", "rust": "#c27a45", "deepolive": "#757a3e"},
+  "colours": {"olive": "#56552a", "blackgreen": "#22301f", "rust": "#7a3d1d", "deepolive": "#3c4120"},
+  "highlight": {"olive": "#7c7a43", "blackgreen": "#3d5236", "rust": "#9e5a30", "deepolive": "#5b6132"},
   "shadow": "#090b06",
   "mix": {"olive": 0.4, "blackgreen": 0.35, "deepolive": 0.17, "rust": 0.08},
   "knot_colours": ["rust", "rust", "olive"],
-  "light": [-0.6, -0.8]
+  "light": [-0.6, -0.8],
+  "avoid_regions": ["banner"]
  },
- "banner": {"colour": "#c99b45", "hi": "#f2d488", "lo": "#7a5a22", "pitch": 0.014, "fill": 0.74, "warp": 0.022, "duty": 0.78, "jitter": 0.12},
+ "banner": {"colour": "#c99b45", "hi": "#f2d488", "lo": "#7a5a22", "pitch": 0.014, "fill": 0.72, "warp": 0.06, "duty": 0.955, "jitter": 0.12, "twill": 0.37},
  "camera": {
   "ease": "settle",
   "dip": 0.18,
@@ -614,7 +615,7 @@
     {"t": 3.9, "x": 0.5, "y": 0.5, "h": 1.06, "provisional": true, "f": 0.0}
    ],
    "weeds": [
-    {"kind": "sprout", "t": 0.0, "region": "tapestry", "count": 30, "dir": -90, "length": 0.08, "seed": 5, "provisional": true}
+    {"kind": "sprout", "t": 0.0, "region": "tapestry", "count": 40, "dir": -90, "length": 0.11, "seed": 5, "provisional": true}
    ],
    "props": [
     {"kind": "sparkle", "t": 0.5, "dur": 3.3, "count": 8, "seed": 4}
@@ -668,7 +669,7 @@
     {"t": 5.6, "x": 0.5, "y": 0.5, "h": 1.06, "f": 1.0, "provisional": true}
    ],
    "weeds": [
-    {"kind": "spill", "t": 0.0, "count": 46, "length": 0.42, "seed": 7, "provisional": true}
+    {"kind": "spill", "t": 0.0, "count": 30, "length": 0.78, "seed": 7, "provisional": true}
    ]
   },
   {

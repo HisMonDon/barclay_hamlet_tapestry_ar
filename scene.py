@@ -4,6 +4,7 @@ import numpy as np
 from banner import Weave
 from config import ROOT, resolve
 from ink import Canvas, InkEngine
+from weeds import WeedEngine
 
 
 def load_scan(cfg):
@@ -31,6 +32,7 @@ class Scene:
         self.weaves = [Weave(w, t0, self.over_canvas, cfg.get("banner"), glints[0] if glints else None)
                        for w, t0 in timeline.weaves()]
         self.over = np.zeros((self.over_canvas.h, self.over_canvas.w, 4), np.uint8)
+        self.weeds = WeedEngine(cfg, timeline, self.ink.T, self.ink_canvas, self.over_canvas)
         self._saved = []
         self._content = False
         self._cache_t = None
@@ -76,7 +78,7 @@ class Scene:
 
     def overlay(self, t):
         self._restore()
-        drew = self._content
+        drew = self.weeds.draw(self.over, t)
         for w in self.weaves:
             img = w.render(t)
             if img is not None:
