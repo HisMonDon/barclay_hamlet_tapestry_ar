@@ -104,7 +104,9 @@ class Weave:
 
 class InkEngine:
     def __init__(self, cfg, timeline):
-        ink = cfg["ink"]
+        ink = {"alpha": 0.05, "edge": 0.025, "opacity": 1.0, "noise": {"cells": 6, "octaves": 5, "persistence": 0.6, "seed": 7},
+               "ramp": [[0.0, "stain", 0.0], [0.6, "stain", 0.35], [0.68, "front", 0.965], [1.0, "deep", 0.965]], **cfg["ink"]}
+        cfg = {**cfg, "ink": ink}
         self.tw, self.th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
         margin = cfg.get("overlay", {}).get("margin", 0.0)
         self.ink_canvas = Canvas(self.tw, self.th, ink.get("resolution", 1.0), margin)
@@ -185,6 +187,8 @@ class InkEngine:
     def set_tone(self, cfg, name):
         ink = cfg["ink"]
         tone = {k: hex_bgr(v) for k, v in ink["tones"][name].items()}
+        tone.setdefault("front", tone.get("wet"))
+        tone.setdefault("deep", tone.get("dry"))
         stops = [(p, tone[k], a) for p, k, a in ink["ramp"]]
         lut = np.empty((256, 3), np.float32)
         for i in range(256):

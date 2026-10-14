@@ -7,5 +7,20 @@
  "marker_mm": 60,
  "gap_mm": 8,
  "tapestry_width": 960,
- "overlay_margin": 0.5
+ "overlay_margin": 0.5,
+ "beats": "beats_v2.json",
+ "quality": {
+  "live": {"ink_resolution": 0.6, "overlay_scale": 1.25, "output_scale": 1.0},
+  "render": {"ink_resolution": 1.0, "overlay_scale": 2.0, "output_scale": 1.0}
+ },
+ "atmosphere": {
+  "flicker": {"on": true, "amount": 0.028, "warmth": 0.012, "speed": 1.0, "seed": 3},
+  "vignette": {"on": true, "strength": 0.28, "softness": 0.65, "tint": "#fff2df"},
+  "grain": {"on": true, "amount": 2.2, "fps": 24}
+ },
+ "sound": {"on": true, "rate": 44100, "volume": 0.8, "dir": "assets/sfx", "backend": "auto", "sync_tolerance": 0.06},
+ "camera_input": {"source": "0", "backend": "auto", "capture_size": "1920x1080", "reconnect_s": 1.5, "stale_s": 0.75},
+ "backup_video": "renders/backup.mp4",
+ "cache_dir": ".cache",
+ "debug": {"hud": false}
 }
