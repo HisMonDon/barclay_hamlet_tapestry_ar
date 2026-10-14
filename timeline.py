@@ -63,17 +63,20 @@ class Timeline:
             for x in b.get(kind, []):
                 yield x, start + x.get("t", 0.0), k
 
+    def resolve(self, s):
+        s = dict(s)
+        if "bounds" in s and "clip" not in s:
+            s["clip"] = s["bounds"]
+        poly = self.polygon(s.get("clip"))
+        if poly is not None:
+            s["clip"] = poly
+            xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+            s["bounds"] = [min(xs), min(ys), max(xs), max(ys)]
+        return s
+
     def seeds(self):
         for s, t0, _ in self.items("seeds"):
-            s = dict(s)
-            if "bounds" in s and "clip" not in s:
-                s["clip"] = s["bounds"]
-            poly = self.polygon(s.get("clip"))
-            if poly is not None:
-                s["clip"] = poly
-                xs, ys = [p[0] for p in poly], [p[1] for p in poly]
-                s["bounds"] = [min(xs), min(ys), max(xs), max(ys)]
-            yield s, t0
+            yield self.resolve(s), t0
 
     def weaves(self):
         for w, t0, _ in self.items("weaves"):

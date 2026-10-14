@@ -179,10 +179,13 @@ def ink_checks(cfg, renderer):
     gx, gy = ghost_centre(cfg)
     gi, gj = int(gy * ink.ih), int(gx * ink.iw)
     check("ghost interior never reached by ink", not np.isfinite(T[gi, gj]))
+    b02, s02 = beat(tl, "B02")
     b03, s03 = beat(tl, "B03")
     ear = b03["seeds"][0]
     ei, ej = int(ear["y"] * ink.ih), int(ear["x"] * ink.iw)
-    check("ink starts at the king's ear in B03", s03 - 0.5 < T[ei, ej] < s03 + 0.5, f"T={T[ei, ej]:.2f}")
+    impact = next(p for p in sc.props if p.spec.get("kind") == "vial").t_impact
+    check("the vial drop inks the king's ear on impact", s02 < impact < s03 + 0.2 and abs(T[ei, ej] - impact) < 0.3,
+          f"impact {impact:.2f}, ear T={T[ei, ej]:.2f}")
     order = []
     for bid in ("B03", "B04", "B05", "B08", "B10", "B13"):
         b, s = beat(tl, bid)
@@ -225,20 +228,21 @@ def weed_checks(cfg, renderer, frame, H, Ht):
     soak = cfg["weeds"]["soak_s"]
     tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
     b11, s11 = beat(tl, "B11")
-    check("weeds appear only from B11", we.first >= s11 - 1e-6, f"first {we.first:.2f} vs {s11:.2f}")
+    check("weeds appear only from B11", we.first_plant >= s11 - 1e-6, f"first {we.first_plant:.2f} vs {s11:.2f}")
     bad = 0
     for x, y, tr, kind in we.roots:
         u, v = x / tw, y / th
         if 0 <= u < 1 and 0 <= v < 1:
             bad += int(not T[int(v * sc.ink.ih), int(u * sc.ink.iw)] + soak <= tr + 1e-6)
     check("weeds root only in soaked ink", bad == 0 and len(we.roots) > 50, f"{len(we.roots)} roots, {bad} unsoaked")
-    S = we.S
+    S = we.S[we.S[:, 8] != 2]
     u, v = S[:, 0] / tw, S[:, 1] / th
     tol = 4.0 / tw
     inside = (u >= -tol) & (u < 1 + tol) & (v >= -tol) & (v < 1 + tol)
-    strict = (u >= 0) & (u < 1) & (v >= 0) & (v < 1)
-    Ti = T[(v[strict] * sc.ink.ih).astype(int), (u[strict] * sc.ink.iw).astype(int)]
-    late = np.sum(Ti > S[strict, 4] + 0.25)
+    mu, mv = (S[:, 0] + S[:, 2]) / 2 / tw, (S[:, 1] + S[:, 3]) / 2 / th
+    strict = (mu >= 0) & (mu < 1) & (mv >= 0) & (mv < 1) & (S[:, 8] == 0)
+    Ti = T[(mv[strict] * sc.ink.ih).astype(int), (mu[strict] * sc.ink.iw).astype(int)]
+    late = np.sum(Ti > (S[strict, 4] + S[strict, 5]) / 2 + 0.25)
     check("stitches grow only over ink that has arrived", late <= 0.002 * strict.sum(), f"{late} of {strict.sum()}")
     b20, s20 = beat(tl, "B20")
     out = ~inside

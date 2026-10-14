@@ -67,7 +67,7 @@ def tiles(a, ny, nx, fill):
 
 
 class InkEngine:
-    def __init__(self, cfg, timeline, scan=None, extra_seeds=(), cache_dir=None):
+    def __init__(self, cfg, timeline, scan=None, extra_seeds=(), cache_dir=None, ungild=()):
         self.cfg = cfg
         ink = cfg["ink"]
         self.p = ink
@@ -82,6 +82,8 @@ class InkEngine:
         seeds += self._drips(seeds)
         tides = [(d, t) for d, t, _ in timeline.items("tides")]
         fb = FieldBuilder(cfg, self.iw, self.ih, scan, cache_dir)
+        for x, y, r in ungild:
+            cv2.circle(fb.gold, (int(x * self.iw), int(y * self.ih)), max(1, int(r * self.iw)), 0.0, -1)
         self.fields = fb
         self.T = fb.arrival(seeds, tides)
         self.seeds = seeds

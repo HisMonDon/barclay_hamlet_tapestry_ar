@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+import props as propmod
 from banner import Weave
 from config import ROOT, resolve
 from ink import Canvas, InkEngine
@@ -24,9 +25,12 @@ class Scene:
         cache = cfg.get("cache_dir")
         cache = (ROOT / cache) if cache else None
         self.over_canvas = Canvas(self.tw, self.th, cfg.get("overlay", {}).get("scale", 1.0), margin)
-        self.props = []
-        extra = []
-        self.ink = InkEngine(cfg, timeline, self.scan, extra, cache)
+        self.ctx = propmod.Ctx(self.tw, self.th, self.over_canvas)
+        self.props = propmod.build(timeline, self.ctx)
+        extra = [(timeline.resolve(s), t) for p in self.props for s, t in p.seeds()]
+        ungild = [p.ungild() for p in self.props if hasattr(p, "ungild")]
+        self.ink = InkEngine(cfg, timeline, self.scan, extra, cache, ungild)
+        self.ctx.gold = self.ink.fields.gold
         self.ink_canvas = self.ink.ink_canvas
         glints = [(g, t) for g, t, _ in timeline.items("props") if g.get("kind") == "glint"]
         self.weaves = [Weave(w, t0, self.over_canvas, cfg.get("banner"), glints[0] if glints else None)
@@ -84,7 +88,17 @@ class Scene:
             if img is not None:
                 self._stamp(w.rows, w.cols, img, True)
                 drew = True
+        for p in self.props:
+            for rows, cols, img in p.stamps(t):
+                self._stamp(rows, cols, img, p.under)
+                drew = True
         return self.over if drew else None
+
+    def cues(self):
+        out = []
+        for p in self.props:
+            out += p.cues()
+        return out
 
     def layers(self, t):
         if self._cache_t != t:

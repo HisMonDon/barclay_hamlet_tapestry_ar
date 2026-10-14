@@ -6,8 +6,8 @@ import numpy as np
 from fields import raster
 
 KINDS = {
-    "sprout": {"speed": 1.0, "branch": 0.6, "depth": 2, "nb": (3, 2), "curl": 0.07, "trop": 0.16, "leaf": 0.6, "knot": 0.3, "tendril": 0.3, "spread": 28},
-    "meadow": {"speed": 1.1, "branch": 0.55, "depth": 2, "nb": (3, 1), "curl": 0.06, "trop": 0.2, "leaf": 0.65, "knot": 0.35, "tendril": 0.2, "spread": 20},
+    "sprout": {"speed": 1.0, "branch": 0.6, "depth": 2, "nb": (3, 2), "curl": 0.07, "trop": 0.16, "leaf": 0.6, "knot": 0.2, "tendril": 0.3, "spread": 28},
+    "meadow": {"speed": 1.1, "branch": 0.55, "depth": 2, "nb": (3, 1), "curl": 0.06, "trop": 0.2, "leaf": 0.65, "knot": 0.2, "tendril": 0.2, "spread": 20},
     "creeper": {"speed": 1.5, "branch": 0.7, "depth": 1, "nb": (6, 0), "curl": 0.035, "trop": 0.3, "leaf": 0.7, "knot": 0.15, "tendril": 0.35, "spread": 6},
     "gaps": {"speed": 0.9, "branch": 0.5, "depth": 1, "nb": (2, 0), "curl": 0.08, "trop": 0.18, "leaf": 0.55, "knot": 0.3, "tendril": 0.25, "spread": 30},
     "spill": {"speed": 4.2, "branch": 0.55, "depth": 2, "nb": (4, 1), "curl": 0.055, "trop": 0.1, "leaf": 0.6, "knot": 0.2, "tendril": 0.5, "spread": 34},
@@ -65,11 +65,16 @@ class WeedEngine:
         self.roots = []
         for spec, t0, _ in timeline.items("weeds"):
             self._colony(b, spec, t0, timeline)
+        for spec, t0, _ in timeline.items("props"):
+            if spec.get("kind") == "thread":
+                self._thread(b, spec, t0)
         S = np.array(b.s, np.float64).reshape(-1, 9)
         order = np.argsort(S[:, 4], kind="stable")
         self.S = S[order]
         K = np.array(b.k, np.float64).reshape(-1, 5)
         self.K = K[np.argsort(K[:, 2], kind="stable")]
+        plant = self.S[:, 8] != 2
+        self.first_plant = float(min(self.S[plant, 4].min() if plant.any() else 1e9, self.K[:, 2].min() if len(self.K) else 1e9))
         self.first = float(min(self.S[:, 4].min() if len(self.S) else 1e9, self.K[:, 2].min() if len(self.K) else 1e9))
         self._xy()
         self.drawn = -1.0
@@ -242,6 +247,29 @@ class WeedEngine:
                            int(rng.choice(len(self.names), p=self.mix)), k, spill, v * 0.9)
         if rng.random() < k["knot"] * (1.0 if depth else 0.7):
             self._knots(b, rng, pts[-1], tip_a, times[-1], w, spill)
+
+    def _thread(self, b, spec, t0):
+        col = hex_bgr(spec.get("colour", "#c3cad1"))
+        self.names.append("thread")
+        self.body.append(col)
+        self.hi.append(tuple(min(255, int(c * 1.15) + 10) for c in col))
+        ci = len(self.names) - 1
+        pts = np.array([[x * self.tw, y * self.th] for x, y in spec["path"]], np.float64)
+        seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+        s = np.concatenate([[0.0], np.cumsum(seg)])
+        L = float(s[-1])
+        dur = spec.get("dur", 1.8)
+        dash, gap = self.stitch * spec.get("dash", 0.9), self.stitch * spec.get("gap", 0.3)
+        w = self.width * spec.get("width", 0.65)
+        u = 0.0
+        while u < L:
+            e = min(L, u + dash)
+            n = max(2, int((e - u) / 2) + 1)
+            us = np.linspace(u, e, n)
+            q = np.stack([np.interp(us, s, pts[:, 0]), np.interp(us, s, pts[:, 1])], 1)
+            for k in range(n - 1):
+                b.stroke(q[k], q[k + 1], t0 + dur * us[k] / L, t0 + dur * us[k + 1] / L + 1e-3, w, ci, 2)
+            u = e + gap
 
     def _stitches(self, b, rng, pts, times, w, ci):
         n = len(pts)
