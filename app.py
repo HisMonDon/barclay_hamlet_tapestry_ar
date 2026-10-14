@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ink import InkEngine, hex_bgr
+from scene import Scene
 from compositor import Compositor
 from config import CONFIG, default_beats, load
 from timeline import Timeline
@@ -21,8 +21,8 @@ class Renderer:
     def __init__(self, cfg):
         self.cfg = cfg
         self.timeline = Timeline(cfg)
-        self.ink = InkEngine(cfg, self.timeline)
-        self.scene = self.ink
+        self.scene = Scene(cfg, self.timeline)
+        self.ink = self.scene
         self.tracker = BoardTracker(cfg)
         self.comp = Compositor(cfg, self.scene, self.timeline)
         self.ow, self.oh = self.comp.ow, self.comp.oh
