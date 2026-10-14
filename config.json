@@ -1,0 +1,11 @@
+{
+ "paper": "tabloid",
+ "papers_in": {
+  "letter": [8.5, 11.0],
+  "tabloid": [11.0, 17.0]
+ },
+ "marker_mm": 60,
+ "gap_mm": 8,
+ "tapestry_width": 960,
+ "overlay_margin": 0.5
+}

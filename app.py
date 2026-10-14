@@ -6,7 +6,8 @@ import cv2
 import numpy as np
 
 from ink import InkEngine, hex_bgr
-from timeline import Timeline, load
+from config import CONFIG, load
+from timeline import Timeline
 from tracking import BoardTracker
 
 KEYS_LEFT = {2424832, 65361, 63234, 81}
@@ -21,17 +22,24 @@ class Renderer:
         self.timeline = Timeline(cfg)
         self.ink = InkEngine(cfg, self.timeline)
         self.tracker = BoardTracker(cfg)
-        self.ink_to_tapestry = self.ink.to_tapestry()
+        self.mult_to_tapestry = self.ink.mult_to_tapestry()
+        self.over_to_tapestry = self.ink.over_to_tapestry()
         self.tw, self.th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
         self.ow, self.oh = cfg["output"]["width"], cfg["output"]["height"]
         self.bg = tuple(int(v) for v in hex_bgr(cfg["background"]))
 
-    def composite(self, frame, H, t):
-        mult = self.ink.overlay(t)
+    def composite(self, frame, H, mult, over):
         h, w = frame.shape[:2]
-        warped = cv2.warpPerspective(mult, H @ self.ink_to_tapestry, (w, h), flags=cv2.INTER_LINEAR,
+        warped = cv2.warpPerspective(mult, H @ self.mult_to_tapestry, (w, h), flags=cv2.INTER_LINEAR,
                                      borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-        return cv2.multiply(frame, warped, scale=1.0 / 255.0)
+        out = cv2.multiply(frame, warped, scale=1.0 / 255.0)
+        if over is None:
+            return out
+        top = cv2.warpPerspective(over, H @ self.over_to_tapestry, (w, h), flags=cv2.INTER_LINEAR,
+                                  borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+        clear = cv2.subtract(255, top[:, :, 3])
+        out = cv2.multiply(out, cv2.merge([clear, clear, clear]), scale=1.0 / 255.0)
+        return cv2.add(out, top[:, :, :3])
 
     def crop_matrix(self, t):
         x, y, w = self.timeline.camera(t)
@@ -60,7 +68,7 @@ class Renderer:
         H = self.tracker.update(frame)
         if H is None:
             return self.fit(frame), False
-        comp = self.composite(frame, H, t)
+        comp = self.composite(frame, H, *self.ink.layers(t))
         return (self.virtual_camera(comp, H, t) if virtual else self.fit(comp)), True
 
 
@@ -83,13 +91,14 @@ def open_camera(source, width, height):
 def main():
     ap = argparse.ArgumentParser(description="Live AR ink tapestry")
     ap.add_argument("--beats", default=str(Path(__file__).with_name("beats.json")))
+    ap.add_argument("--config", default=str(CONFIG))
     ap.add_argument("--camera", default="0", help="device index or stream URL")
     ap.add_argument("--capture-size", default="1920x1080")
     ap.add_argument("--tone", default=None)
     ap.add_argument("--windowed", action="store_true")
     args = ap.parse_args()
 
-    cfg = load(args.beats)
+    cfg = load(args.beats, args.config)
     if args.tone:
         cfg["ink"]["tone"] = args.tone
     renderer = Renderer(cfg)
