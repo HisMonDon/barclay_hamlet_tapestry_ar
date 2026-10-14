@@ -5,8 +5,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ink import InkEngine, hex_bgr
-from config import CONFIG, load
+from scene import Scene
+from compositor import Compositor
+from config import CONFIG, default_beats, load
 from timeline import Timeline
 from tracking import BoardTracker
 
@@ -20,56 +21,26 @@ class Renderer:
     def __init__(self, cfg):
         self.cfg = cfg
         self.timeline = Timeline(cfg)
-        self.ink = InkEngine(cfg, self.timeline)
+        self.scene = Scene(cfg, self.timeline)
+        self.ink = self.scene
         self.tracker = BoardTracker(cfg)
-        self.mult_to_tapestry = self.ink.mult_to_tapestry()
-        self.over_to_tapestry = self.ink.over_to_tapestry()
-        self.tw, self.th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
-        self.ow, self.oh = cfg["output"]["width"], cfg["output"]["height"]
-        self.bg = tuple(int(v) for v in hex_bgr(cfg["background"]))
+        self.comp = Compositor(cfg, self.scene, self.timeline)
+        self.ow, self.oh = self.comp.ow, self.comp.oh
 
     def composite(self, frame, H, mult, over):
-        h, w = frame.shape[:2]
-        warped = cv2.warpPerspective(mult, H @ self.mult_to_tapestry, (w, h), flags=cv2.INTER_LINEAR,
-                                     borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-        out = cv2.multiply(frame, warped, scale=1.0 / 255.0)
-        if over is None:
-            return out
-        top = cv2.warpPerspective(over, H @ self.over_to_tapestry, (w, h), flags=cv2.INTER_LINEAR,
-                                  borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
-        clear = cv2.subtract(255, top[:, :, 3])
-        out = cv2.multiply(out, cv2.merge([clear, clear, clear]), scale=1.0 / 255.0)
-        return cv2.add(out, top[:, :, :3])
-
-    def crop_matrix(self, t):
-        x, y, w = self.timeline.camera(t)
-        cw = w * self.tw
-        ch = cw * self.oh / self.ow
-        return np.array([[cw / self.ow, 0, x * self.tw - cw / 2],
-                         [0, ch / self.oh, y * self.th - ch / 2],
-                         [0, 0, 1]], np.float64)
-
-    def virtual_camera(self, frame, H, t):
-        M = H @ self.crop_matrix(t)
-        return cv2.warpPerspective(frame, M, (self.ow, self.oh), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
-                                   borderMode=cv2.BORDER_CONSTANT, borderValue=self.bg)
+        return self.comp.composite(frame, H, mult, over)
 
     def fit(self, frame):
-        h, w = frame.shape[:2]
-        s = min(self.ow / w, self.oh / h)
-        nw, nh = int(round(w * s)), int(round(h * s))
-        out = np.empty((self.oh, self.ow, 3), np.uint8)
-        out[:] = self.bg
-        x0, y0 = (self.ow - nw) // 2, (self.oh - nh) // 2
-        out[y0:y0 + nh, x0:x0 + nw] = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
-        return out
+        return self.comp.fit(frame)
+
+    def frame(self, frame, H, t, virtual=True):
+        return self.comp.frame(frame, H, t, virtual)
 
     def render(self, frame, t, virtual=True):
         H = self.tracker.update(frame)
         if H is None:
             return self.fit(frame), False
-        comp = self.composite(frame, H, *self.ink.layers(t))
-        return (self.virtual_camera(comp, H, t) if virtual else self.fit(comp)), True
+        return self.frame(frame, H, t, virtual), True
 
 
 def hud(img, lines):
@@ -90,7 +61,7 @@ def open_camera(source, width, height):
 
 def main():
     ap = argparse.ArgumentParser(description="Live AR ink tapestry")
-    ap.add_argument("--beats", default=str(Path(__file__).with_name("beats.json")))
+    ap.add_argument("--beats", default=None)
     ap.add_argument("--config", default=str(CONFIG))
     ap.add_argument("--camera", default="0", help="device index or stream URL")
     ap.add_argument("--capture-size", default="1920x1080")
@@ -98,7 +69,7 @@ def main():
     ap.add_argument("--windowed", action="store_true")
     args = ap.parse_args()
 
-    cfg = load(args.beats, args.config)
+    cfg = load(args.beats or default_beats(args.config), args.config)
     if args.tone:
         cfg["ink"]["tone"] = args.tone
     renderer = Renderer(cfg)

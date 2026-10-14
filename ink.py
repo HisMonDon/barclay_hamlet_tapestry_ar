@@ -3,8 +3,11 @@ import math
 import cv2
 import numpy as np
 
-CAP = {"max": 1.0, "tint": "#9fb4dc"}
-WEAVE = {"colour": "#c99b45", "speed": 0.15, "pitch": 0.014, "fill": 0.72, "warp": 0.022, "duty": 0.78}
+from fields import FieldBuilder, fractal_noise, raster, warped_noise
+
+TILE = 64
+APRON = 2
+BIN = 0.05
 
 
 def hex_bgr(h):
@@ -12,24 +15,10 @@ def hex_bgr(h):
     return np.array([int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16)], np.float32)
 
 
-def fractal_noise(w, h, cells, octaves, persistence, seed):
-    rng = np.random.default_rng(seed)
-    out = np.zeros((h, w), np.float32)
-    amp = 1.0
-    for o in range(octaves):
-        nx = max(2, int(round(cells * 2 ** o)))
-        ny = max(2, int(round(nx * h / w)))
-        grid = rng.random((ny + 1, nx + 1), dtype=np.float32)
-        out += amp * cv2.resize(grid, (w, h), interpolation=cv2.INTER_CUBIC)
-        amp *= persistence
-    out -= out.mean()
-    out /= max(1e-6, float(np.abs(out).max()))
-    return out
-
-
 class Canvas:
     def __init__(self, tw, th, scale, margin):
         self.tw, self.th = tw, th
+        self.scale = scale
         self.w0 = max(8, int(round(tw * scale)))
         self.h0 = max(8, int(round(th * scale)))
         self.pad = int(round(margin * self.w0))
@@ -52,195 +41,303 @@ class Canvas:
         ys = (np.arange(rows.start, rows.stop, dtype=np.float32) - self.pad + 0.5) / self.h0
         return xs[None, :], ys[:, None]
 
-
-class Seed:
-    __slots__ = ("t0", "speed", "radius", "rows", "cols", "base")
-
-    def __init__(self, t0, speed, radius, rows, cols, base):
-        self.t0, self.speed, self.radius = t0, speed, radius
-        self.rows, self.cols, self.base = rows, cols, base
+    def px(self, x, y):
+        return x * self.w0 + self.pad, y * self.h0 + self.pad
 
 
-class Weave:
-    def __init__(self, spec, t0, canvas):
-        w = {**WEAVE, **spec}
-        x0, y0, x1, y1 = w["bounds"]
-        aspect = canvas.th / canvas.tw
-        self.rows, self.cols = canvas.span(x0, y0, x1, y1)
-        xs, ys = canvas.coords(self.rows, self.cols)
-        px = 1.0 / canvas.w0
-        pitch, fill, warp, duty = w["pitch"], w["fill"], w["warp"], w["duty"]
-        u = xs - x0
-        v = (ys - y0) * aspect
-        row = np.floor(v / pitch)
-        fv = v / pitch - row
-        odd = (row % 2).astype(np.float32)
-        fu = np.mod(u / warp + 0.5 * odd, 1.0)
-        a_v = np.clip((fill / 2 - np.abs(fv - 0.5)) * pitch / px + 0.5, 0.0, 1.0)
-        a_u = np.clip((duty / 2 - np.abs(fu - 0.5)) * warp / px + 0.5, 0.0, 1.0)
-        across = np.clip((fv - (1 - fill) / 2) / fill, 0.0, 1.0)
-        shade = (0.62 + 0.38 * np.sin(np.pi * across)) * (0.86 + 0.14 * np.sin(np.pi * fu))
-        self.static = (a_v * a_u).astype(np.float32)
-        self.colour = (hex_bgr(w["colour"]) * shade[..., None]).astype(np.float32)
-        self.width = x1 - x0
-        self.along = np.broadcast_to(np.where(odd > 0, self.width - u, u), self.static.shape).astype(np.float32)
-        self.row_time = pitch / w["speed"]
-        self.start = (t0 + np.broadcast_to(row, self.static.shape) * self.row_time).astype(np.float32)
-        self.t0 = t0
-        self.px = px
+def smoothstep(e0, e1, x):
+    p = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+    return p * p * (3 - 2 * p)
 
-    def paint(self, over, t):
-        if t < self.t0:
-            return False
-        p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
-        a = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0)
-        dst = over[self.rows, self.cols].astype(np.float32)
-        keep = 1.0 - a
-        dst[..., :3] = self.colour * a[..., None] + dst[..., :3] * keep[..., None]
-        dst[..., 3] = 255.0 * a + dst[..., 3] * keep
-        over[self.rows, self.cols] = np.clip(dst + 0.5, 0, 255).astype(np.uint8)
-        return True
+
+def tiles(a, ny, nx, fill):
+    h, w = a.shape[:2]
+    S = TILE + 2 * APRON
+    big = np.full((ny * TILE + 2 * APRON, nx * TILE + 2 * APRON) + a.shape[2:], fill, a.dtype)
+    big[APRON:APRON + h, APRON:APRON + w] = a
+    big[:APRON, APRON:APRON + w] = a[:1]
+    big[APRON + h:APRON + h + APRON, APRON:APRON + w] = a[-1:]
+    big[:, :APRON] = big[:, APRON:APRON + 1]
+    big[:, APRON + w:APRON + w + APRON] = big[:, APRON + w - 1:APRON + w]
+    out = np.empty((ny * nx, S, S) + a.shape[2:], a.dtype)
+    for k in range(ny * nx):
+        r, c = divmod(k, nx)
+        out[k] = big[r * TILE:r * TILE + S, c * TILE:c * TILE + S]
+    return out
 
 
 class InkEngine:
-    def __init__(self, cfg, timeline):
+    def __init__(self, cfg, timeline, scan=None, extra_seeds=(), cache_dir=None, ungild=()):
+        self.cfg = cfg
         ink = cfg["ink"]
+        self.p = ink
+        self.timeline = timeline
         self.tw, self.th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
         margin = cfg.get("overlay", {}).get("margin", 0.0)
-        self.ink_canvas = Canvas(self.tw, self.th, ink.get("resolution", 1.0), margin)
-        self.over_canvas = Canvas(self.tw, self.th, 1.0, margin)
+        self.ink_canvas = Canvas(self.tw, self.th, ink.get("resolution", 0.75), margin)
         self.iw, self.ih = self.ink_canvas.w0, self.ink_canvas.h0
-        self.edge = max(1e-4, ink["edge"])
         self.aspect = self.th / self.tw
-        n = ink["noise"]
-        self.noise = fractal_noise(self.iw, self.ih, n["cells"], n["octaves"], n["persistence"], n["seed"])
-        self.xs = ((np.arange(self.iw, dtype=np.float32) + 0.5) / self.iw)[None, :]
-        self.ys = ((np.arange(self.ih, dtype=np.float32) + 0.5) / self.ih)[:, None]
-        seeds = list(timeline.seeds())
-        self.seeds = [self._build(s, t0, ink["alpha"]) for s, t0 in seeds if not s.get("lift")]
-        self.seeds = [s for s in self.seeds if s is not None]
-        weaves = [(self._lift_weave(s), t0) for s, t0 in seeds if s.get("lift")] + list(timeline.weaves())
-        self.weaves = [Weave(w, t0, self.over_canvas) for w, t0 in weaves]
-        self.opacity = ink["opacity"]
-        self.cap = self._caps(ink.get("caps", ink.get("resist", [])), {**CAP, **ink.get("cap", {})}, ink.get("feather", 0.0))
+        seeds = list(timeline.seeds()) + list(extra_seeds)
+        seeds = [(s, t) for s, t in seeds if not s.get("lift")]
+        seeds += self._drips(seeds)
+        tides = [(d, t) for d, t, _ in timeline.items("tides")]
+        fb = FieldBuilder(cfg, self.iw, self.ih, scan, cache_dir)
+        for x, y, r in ungild:
+            cv2.circle(fb.gold, (int(x * self.iw), int(y * self.ih)), max(1, int(r * self.iw)), 0.0, -1)
+        self.fields = fb
+        self.T = fb.arrival(seeds, tides)
+        self.seeds = seeds
+        self.end = timeline.end
+        self._static(fb)
         self.set_tone(cfg, ink["tone"])
         self.mult = np.full((self.ink_canvas.h, self.ink_canvas.w, 3), 255, np.uint8)
-        self.over = np.zeros((self.over_canvas.h, self.over_canvas.w, 4), np.uint8)
-        self._painted = []
         self._cache_t = None
-        self._cache = None
 
-    def _lift_weave(self, s):
-        if "bounds" in s:
-            bounds = s["bounds"]
-        elif math.isfinite(s.get("radius", math.inf)):
-            r = s["radius"]
-            bounds = [s["x"] - r, s["y"] - r / self.aspect, s["x"] + r, s["y"] + r / self.aspect]
-        else:
-            bounds = [0.0, 0.0, 1.0, 1.0]
-        return {"bounds": bounds, "speed": s["speed"]}
+    def _drips(self, seeds):
+        out = []
+        for s, t0 in seeds:
+            d = s.get("drips")
+            if not d:
+                continue
+            rng = np.random.default_rng(d.get("seed", 0))
+            r = s.get("radius", 0.02)
+            for k in range(d.get("count", 2)):
+                x = s["x"] + rng.uniform(-0.8, 0.8) * r
+                y = s["y"] + rng.uniform(0.2, 0.9) * r / self.aspect
+                L = d.get("length", 0.05) * rng.uniform(0.6, 1.1)
+                n = max(3, int(L / 0.008))
+                pts = [[x, y]]
+                for x_ in range(n):
+                    x += rng.normal(0.0, 0.0012)
+                    y += L / n / self.aspect
+                    pts.append([x, y])
+                drip = {"x": pts[0][0], "y": pts[0][1], "speed": s["speed"] * d.get("speed", 1.6), "path": pts,
+                        "channel": d.get("channel", 0.12), "width": d.get("width", 0.004),
+                        "radius": L * d.get("channel", 0.12) * 1.15 + d.get("pool", 0.01),
+                        "gravity": 0.8}
+                if "clip" in s:
+                    drip["clip"] = s["clip"]
+                    drip["bounds"] = s["bounds"]
+                out.append((drip, t0 + d.get("t", 0.3) + rng.uniform(0.0, 0.3)))
+        return out
 
-    def _build(self, s, t0, alpha_default):
-        alpha = s.get("alpha", alpha_default)
-        radius = s.get("radius", math.inf)
-        sx, sy = s["x"], s["y"]
-        x0, y0, x1, y1 = s.get("bounds", [0.0, 0.0, 1.0, 1.0])
-        if math.isfinite(radius):
-            reach = radius + abs(alpha) + self.edge
-            x0, x1 = max(x0, sx - reach), min(x1, sx + reach)
-            y0, y1 = max(y0, sy - reach / self.aspect), min(y1, sy + reach / self.aspect)
-        c0, c1 = max(0, int(math.floor(x0 * self.iw))), min(self.iw, int(math.ceil(x1 * self.iw)))
-        r0, r1 = max(0, int(math.floor(y0 * self.ih))), min(self.ih, int(math.ceil(y1 * self.ih)))
-        if c1 <= c0 or r1 <= r0:
-            return None
-        dx = self.xs[:, c0:c1] - sx
-        dy = (self.ys[r0:r1, :] - sy) * self.aspect
-        base = alpha * self.noise[r0:r1, c0:c1] - np.sqrt(dx * dx + dy * dy)
-        return Seed(t0, s["speed"], radius, slice(r0, r1), slice(c0, c1), base.astype(np.float32))
+    def _static(self, fb):
+        p = self.p
+        iw, ih = self.iw, self.ih
+        T = self.T
+        fin = np.isfinite(T)
+        self.ny, self.nx = (ih + TILE - 1) // TILE, (iw + TILE - 1) // TILE
+        edge = p.get("edge_s", 0.12)
+        halo = p.get("halo", {})
+        fing = p.get("finger", {})
+        self.lead = halo.get("lead_s", 0.45)
+        self.famp = fing.get("amp_s", 0.3)
+        self.omega = fing.get("omega", 0.6)
+        dens = p.get("density", {})
+        self.dry_s = dens.get("dry_s", 3.0)
+        rim = p.get("rim", {})
+        self.age_min = -(self.lead + self.famp + edge + 0.05)
+        self.age_max = max(self.dry_s * 1.7, rim.get("stall_s", 0.7) + rim.get("build_s", 1.6) + 0.2)
+        self.K = 255.0 / (self.age_max - self.age_min)
+        self.B = -self.age_min * self.K
+        base = np.where(fin, self.B - T * self.K, -1e4).astype(np.float32)
+        seed = fing.get("seed", 9)
+        n1 = warped_noise(iw, ih, fing.get("cells", 70), 2, 0.02, seed)
+        n2 = warped_noise(iw, ih, fing.get("cells", 70), 2, 0.02, seed + 1)
+        Tf = np.where(fin, T, 1e4).astype(np.float32)
+        wpx = max(1, int(round(rim.get("width", 2.5) * iw / 960.0)))
+        s0, build = rim.get("stall_s", 0.7), rim.get("build_s", 1.6)
+        rimv = np.zeros((ih, iw), np.float32)
+        for r, wgt in ((1, 0.6), (wpx, 0.4)):
+            k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+            stall = cv2.dilate(Tf, k) - Tf
+            rimv += wgt * np.clip((stall - s0) / build, 0.0, 1.0)
+        rimv *= fin * rim.get("alpha", 0.55)
+        rimv = cv2.GaussianBlur(rimv, (0, 0), 0.6)
+        gx = cv2.Sobel(Tf, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(Tf, cv2.CV_32F, 0, 1, ksize=3)
+        mag = np.sqrt(gx * gx + gy * gy) + 1e-6
+        L = np.array(self.cfg.get("weeds", {}).get("light", [-0.6, -0.8]), np.float32)
+        L /= np.linalg.norm(L)
+        cosl = np.clip((gx * L[0] + gy * L[1]) / mag, 0.0, 1.0)
+        cosl[(mag > 50.0) | ~fin] = 0.0
+        tex = p.get("texture", {})
+        dm = 1.0 + tex.get("grain", 0.08) * fb.weave + tex.get("fibre", 0.06) * fb.fibre + 0.05 * fb.noise
+        dm *= 1.0 - p.get("gold_resist", 0.45) * fb.gold
+        self.dm_scale = 200.0
+        self.soften = p.get("soften_px", 0.7)
+        self._ghost(fb)
+        ny, nx = self.ny, self.nx
+        self.t_base = tiles(base, ny, nx, -1e4)
+        self.t_n1 = tiles(n1, ny, nx, 0.0)
+        self.t_n2 = tiles(n2, ny, nx, 0.0)
+        self.t_rim = tiles(np.clip(rimv * 255, 0, 255).astype(np.uint8), ny, nx, 0)
+        self.t_cos = tiles(np.clip(cosl * 255, 0, 255).astype(np.uint8), ny, nx, 0)
+        dm8 = np.clip(dm * self.dm_scale, 0, 255).astype(np.uint8)
+        self.t_dm = tiles(cv2.merge([dm8, dm8, dm8]), ny, nx, int(self.dm_scale))
+        self.boxes = []
+        for k in range(ny * nx):
+            r, c = divmod(k, nx)
+            r0, c0 = r * TILE, c * TILE
+            r1, c1 = min(ih, r0 + TILE), min(iw, c0 + TILE)
+            self.boxes.append((r0, r1, c0, c1))
+        self._activity(T)
 
-    def _caps(self, shapes, default, feather):
-        if not shapes:
-            return None
-        mask = np.zeros((self.ih, self.iw), np.float32)
-        top = np.zeros_like(mask)
-        tint = np.zeros((self.ih, self.iw, 3), np.float32)
-        for e in shapes:
-            m = np.zeros_like(mask)
-            centre = (int(round(e["x"] * self.iw)), int(round(e["y"] * self.ih)))
-            axes = (max(1, int(round(e["rx"] * self.iw))), max(1, int(round(e["ry"] * self.ih))))
-            cv2.ellipse(m, centre, axes, e.get("angle", 0), 0, 360, 1.0, -1, cv2.LINE_AA)
-            f = e.get("feather", feather)
-            if f > 0:
-                m = cv2.GaussianBlur(m, (0, 0), f * self.iw)
-            np.clip(m, 0.0, 1.0, out=m)
-            np.maximum(mask, m, out=mask)
-            top += (e.get("max", default["max"]) - top) * m
-            tint += (hex_bgr(e.get("tint", default["tint"])) - tint) * m[..., None]
-        ys, xs = np.nonzero(mask > 1e-3)
-        if not len(ys):
-            return None
-        rows, cols = slice(ys.min(), ys.max() + 1), slice(xs.min(), xs.max() + 1)
-        return rows, cols, mask[rows, cols, None], top[rows, cols] * self.opacity, 255.0 - tint[rows, cols]
-
-    def set_tone(self, cfg, name):
-        ink = cfg["ink"]
-        tone = {k: hex_bgr(v) for k, v in ink["tones"][name].items()}
-        stops = [(p, tone[k], a) for p, k, a in ink["ramp"]]
+    def _ghost(self, fb):
+        g = self.cfg.get("ghost")
+        self.has_ghost = False
+        self.t_gbase = None
+        if not g:
+            return
+        ev = [(e, t) for e, t, _ in self.timeline.items("events") if e.get("kind") == "grey"]
+        if not ev:
+            return
+        e, t0 = ev[0]
+        poly = self.cfg["regions"][g["region"]]["polygon"]
+        mask = raster(poly, self.iw, self.ih, g.get("feather", 0.003) * self.iw)
+        ys = np.array([p[1] for p in poly])
+        y0, y1 = ys.min(), ys.max()
+        yy = (np.arange(self.ih, dtype=np.float32)[:, None] + 0.5) / self.ih
+        frac = np.clip((yy - y0) / max(1e-6, y1 - y0), 0, 1)
+        nz = fractal_noise(self.iw, self.ih, 30, 3, 0.5, 31)
+        dur = e.get("dur", 1.6)
+        Tg = t0 + dur * (0.75 * frac + 0.15 * (nz + 1) / 2)
+        self.g_ramp = e.get("ramp", 0.6)
+        self.gK = 255.0 / (self.g_ramp + 0.1)
+        gb = np.where(mask > 0.02, -Tg * self.gK, -1e4).astype(np.float32)
+        tint = hex_bgr(g.get("tint", "#2a74e6"))
+        cap = g.get("cap", 0.35)
         lut = np.empty((256, 3), np.float32)
         for i in range(256):
-            d = i / 255.0
-            col, a = stops[-1][1], stops[-1][2]
-            for (pa, ca, aa), (pb, cb, ab) in zip(stops, stops[1:]):
-                if d <= pb:
-                    k = 0.0 if pb <= pa else max(0.0, (d - pa) / (pb - pa))
-                    col, a = ca + (cb - ca) * k, aa + (ab - aa) * k
-                    break
-            a *= ink["opacity"]
-            lut[i] = 255.0 * (1.0 - a) + a * col
-        self.lut = np.clip(lut + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3)
+            a = cap * smoothstep(0.0, 1.0, i / 255.0 * (self.g_ramp + 0.1) / self.g_ramp)
+            lut[i] = 255.0 * (1.0 - a * (1.0 - tint / 255.0))
+        self.g_lut = np.clip(lut + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3)
+        m8 = (np.clip(mask, 0, 1) * 255).astype(np.uint8)
+        self.t_gbase = tiles(gb, self.ny, self.nx, -1e4)
+        self.t_gmask = tiles(cv2.merge([m8, m8, m8]), self.ny, self.nx, 0)
+        self.g_tiles = np.zeros(self.ny * self.nx, bool)
+        self.g_tiles[np.unique(np.nonzero(self.t_gmask[..., 0].reshape(self.ny * self.nx, -1).max(axis=1))[0])] = True
+        self.g_window = (t0 - 0.1, t0 + dur + self.g_ramp + 0.2)
+        self.has_ghost = True
+
+    def _activity(self, T):
+        nb = int(math.ceil((self.end + 1.0) / BIN)) + 2
+        self.nb = nb
+        n = self.ny * self.nx
+        fin = np.isfinite(T)
+        slack = 0.45 * self.famp
+        lo = np.where(fin, T + self.age_min - slack, 1e6).astype(np.float32)
+        hi = np.where(fin, T + self.age_max + slack, -1e6).astype(np.float32)
+        k = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * APRON + 1, 2 * APRON + 1))
+        lo = cv2.erode(lo, k)
+        hi = cv2.dilate(hi, k)
+        ys, xs = np.nonzero(hi > -1e5)
+        tid = (ys // TILE) * self.nx + xs // TILE
+        s = np.clip(np.floor(lo[ys, xs].astype(np.float64) / BIN).astype(np.int64) - 1, 0, nb - 1)
+        e = np.clip(np.ceil(hi[ys, xs].astype(np.float64) / BIN).astype(np.int64) + 1, 0, nb - 1)
+        diff = np.zeros((n, nb + 1), np.int32)
+        np.add.at(diff, (tid, s), 1)
+        np.add.at(diff, (tid, e + 1), -1)
+        act = np.cumsum(diff, axis=1)[:, :nb] > 0
+        if self.has_ghost:
+            a, b = self.g_window
+            act[self.g_tiles, max(0, int(a / BIN)):min(nb, int(math.ceil(b / BIN)) + 1)] = True
+        change = np.zeros_like(act)
+        change[:, 1:] = act[:, 1:] != act[:, :-1]
+        self.act = act
+        self.epoch = np.cumsum(change, axis=1).astype(np.int32)
+        self.done = np.full(n, -1, np.int32)
+
+    def set_tone(self, cfg, name):
+        p = self.p
+        tone = {k: hex_bgr(v) / 255.0 for k, v in p["tones"][name].items()}
+        wet, dry, stain = tone.get("wet", tone.get("front")), tone.get("dry", tone.get("deep")), tone["stain"]
+        rimc = tone.get("rim", wet)
+        dens = p.get("density", {})
+        dw, dd = dens.get("wet", 0.965), dens.get("dry", 0.93)
+        halo = p.get("halo", {})
+        ha = halo.get("alpha", 0.2)
+        edge = p.get("edge_s", 0.12)
+        rim = p.get("rim", {})
+        a = self.age_min + (np.arange(256, dtype=np.float32) + 0.5) / self.K
+        front = smoothstep(-edge, edge, a)
+        hal = ha * np.clip((a + self.lead) / self.lead, 0, 1) ** 1.5 * (1 - front)
+        dried = 1.0 - np.exp(-np.maximum(a, 0) / self.dry_s)
+        d = front * (dw + (dd - dw) * dried)
+        col = wet[None, :] + (dry - wet)[None, :] * dried[:, None]
+        m = (1 - hal[:, None] * (1 - stain[None, :])) * (1 - d[:, None] * (1 - col))
+        self.lut = np.clip(m * 255 + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3)
+        s0, build = rim.get("stall_s", 0.7), rim.get("build_s", 1.6)
+        self.rim_lut = np.clip(255 * np.clip((a - s0) / build, 0, 1), 0, 255).astype(np.uint8).reshape(1, 256)
+        self.rim_k = float(1.0 - rimc.mean())
+        gl = p.get("gloss", 0.12) * front * np.exp(-np.maximum(a, 0) / 0.45) * (1 - dried)
+        self.gloss_lut = np.clip(gl * 255, 0, 255).astype(np.uint8).reshape(1, 256)
         self.tone = name
+        self.done[:] = -1
         self._cache_t = None
 
     def mult_to_tapestry(self):
         return self.ink_canvas.to_tapestry()
 
-    def over_to_tapestry(self):
-        return self.over_canvas.to_tapestry()
+    def _shade(self, idx_tiles, t):
+        k = len(idx_tiles)
+        S = TILE + 2 * APRON
+        shp = (k * S, S)
+        ph = self.omega * t
+        F = self.famp * self.K
+        acc = cv2.addWeighted(self.t_n1[idx_tiles].reshape(shp), F * math.cos(ph),
+                              self.t_n2[idx_tiles].reshape(shp), F * math.sin(ph), t * self.K)
+        acc = cv2.add(acc, self.t_base[idx_tiles].reshape(shp))
+        np.clip(acc, 0, 255, out=acc)
+        idx = acc.astype(np.uint8)
+        m = cv2.LUT(cv2.merge([idx, idx, idx]), self.lut)
+        r = cv2.min(self.t_rim[idx_tiles].reshape(shp), cv2.LUT(idx, self.rim_lut))
+        rf = cv2.subtract(np.full(shp, 255, np.uint8), cv2.multiply(r, np.full(shp, self.rim_k, np.float32), dtype=cv2.CV_8U))
+        m = cv2.multiply(m, cv2.merge([rf, rf, rf]), scale=1.0 / 255.0)
+        inv = cv2.subtract(np.full_like(m, 255), m)
+        inv = cv2.multiply(inv, self.t_dm[idx_tiles].reshape(shp + (3,)), scale=1.0 / self.dm_scale)
+        m = cv2.subtract(np.full_like(m, 255), inv)
+        g = cv2.multiply(cv2.LUT(idx, self.gloss_lut), self.t_cos[idx_tiles].reshape(shp), scale=1.0 / 255.0)
+        m = cv2.add(m, cv2.merge([g, g, g]))
+        if self.has_ghost:
+            gsel = self.g_tiles[idx_tiles]
+            if gsel.any():
+                sub = np.nonzero(gsel)[0]
+                gt = idx_tiles[sub]
+                gs = (len(gt) * S, S)
+                ga = cv2.add(self.t_gbase[gt].reshape(gs), float(t * self.gK))
+                np.clip(ga, 0, 255, out=ga)
+                gi = ga.astype(np.uint8)
+                gl = cv2.LUT(cv2.merge([gi, gi, gi]), self.g_lut)
+                gl = cv2.subtract(np.full_like(gl, 255), cv2.multiply(cv2.subtract(np.full_like(gl, 255), gl),
+                                  self.t_gmask[gt].reshape(gs + (3,)), scale=1.0 / 255.0))
+                m3 = m.reshape(k, S, S, 3)
+                part = m3[sub].reshape(gs + (3,))
+                m3[sub] = cv2.multiply(part, gl, scale=1.0 / 255.0).reshape(len(gt), S, S, 3)
+                m = m3.reshape(shp + (3,))
+        if self.soften > 0:
+            m = cv2.GaussianBlur(m, (3, 3), self.soften)
+        return m.reshape(k, S, S, 3)[:, APRON:APRON + TILE, APRON:APRON + TILE]
+
+    def update(self, t):
+        b = min(self.nb - 1, max(0, int(t / BIN)))
+        ep = self.epoch[:, b]
+        need = self.act[:, b] | (ep != self.done)
+        idx = np.nonzero(need)[0]
+        if len(idx):
+            res = self._shade(idx, t)
+            pad = self.ink_canvas.pad
+            for j, k in enumerate(idx):
+                r0, r1, c0, c1 = self.boxes[k]
+                self.mult[pad + r0:pad + r1, pad + c0:pad + c1] = res[j, :r1 - r0, :c1 - c0]
+            self.done[idx] = ep[idx]
+        return len(idx)
 
     def darkness(self, t):
-        dark = np.zeros((self.ih, self.iw), np.float32)
-        inv = 1.0 / self.edge
-        for s in self.seeds:
-            if t < s.t0:
-                continue
-            front = min((t - s.t0) * s.speed, s.radius)
-            patch = s.base + np.float32(front)
-            patch *= inv
-            np.clip(patch, 0.0, 1.0, out=patch)
-            np.maximum(dark[s.rows, s.cols], patch, out=dark[s.rows, s.cols])
-        return dark
+        return np.clip(1.0 - self.mult[self.ink_canvas.inner].mean(axis=2) / 255.0, 0, 1)
 
-    def ink(self, t):
-        dark = self.darkness(t)
-        idx = cv2.convertScaleAbs(dark, alpha=255.0)
-        out = cv2.LUT(cv2.merge([idx, idx, idx]), self.lut)
-        if self.cap is not None:
-            rows, cols, mask, top, fade = self.cap
-            s = np.minimum(dark[rows, cols] * self.opacity, top)
-            capped = 255.0 - s[..., None] * fade
-            region = out[rows, cols].astype(np.float32)
-            out[rows, cols] = np.clip(region + (capped - region) * mask + 0.5, 0, 255).astype(np.uint8)
-        return out
-
-    def woven(self, t):
-        for rows, cols in self._painted:
-            self.over[rows, cols] = 0
-        self._painted = [(w.rows, w.cols) for w in self.weaves if w.paint(self.over, t)]
-        return self.over if self._painted else None
-
-    def layers(self, t):
+    def layer(self, t):
         if self._cache_t != t:
-            self.mult[self.ink_canvas.inner] = self.ink(t)
-            self._cache = (self.mult, self.woven(t))
+            self.update(t)
             self._cache_t = t
-        return self._cache
+        return self.mult
