@@ -134,3 +134,14 @@ The user's screenshot exposed a quality failure missed in the earlier full conta
 - Regression checks confirm that close-up contrast survives even when the synthetic camera contains no corresponding fine detail, desk pixels outside the drawing stay intact, and adding audio does not change decoded picture pixels. Full pipeline passes.
 
 The regenerated `renders/backup_sharp.mp4` is now the configured default for no-camera playback. Decoded the actual new video for the final before/after comparison; verified 2,250 frames at 30 fps and exactly 441,000 zero-valued audio samples in B21. Picture rendering and single-pass encoding took 224.4 seconds (99.7 ms/frame).
+
+## Round 5: graphics upgrade
+
+Rendered every beat in both presets on the synthetic board, plus close-up crops of the vial impact, crown drips, Gertrude's bloom, the arras burst, first sprouts, goblet, banner and desk spill. The pipeline test passes for both paper sizes and the original beat file still loads.
+
+- **Ink.** Fronts now grow thin fingers along absorbent threads and branch through a capillary channel network; stalled edges stay fingered instead of smooth. A first sheen pass read as grey haze over every fresh stain and a soft white halo on the paper. It now sits just behind the front as a thin glint plus sparse thread-top glints, and fades within about a second. It is additive and separate from the multiply layer, so "nothing is ever cleansed" still holds.
+- **Weeds.** Fishbone satin leaves, tapered stems, buds, small flowers and French knots with a lit crescent read as crewel work at close range. The new soft shadows are what make the runners look raised on the white board.
+- **Splashes.** Droplets read at every impact. Satellite stains first appeared before their droplet landed, because the stain halo leads the front; satellite seeds are now delayed by the halo lead.
+- **Camera.** The first depth-of-field setting blurred the edges of a 0.8-width banner shot; the falloff now starts further out and fades on wide shots. The B11 to B12 whip pan softens the whole frame for about 0.2 s after landing, which reads as a focus pull rather than a cut.
+- **Dust.** Motes at the first brightness were invisible on a projector-scale frame; they are now sparse soft bokeh, brighter near the candle side.
+- **Performance.** Two extra full-frame warps and per-tile Python work raised live frame time by about half. Warping each layer only over its on-screen bounds, drawing shadows straight at quarter resolution, re-blurring only the changed region and moving the sheen sway to two precomputed light directions brought the live preset back to within about 5% of the previous build, measured in the same session on synthetic input. The previous build's numbers above remain the hardware reference; re-run `benchmark.py` on the classroom laptop.

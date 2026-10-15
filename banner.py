@@ -65,6 +65,11 @@ class Weave:
         self.glint = glint
         self.hi = hi
         self.finished = None
+        self.a_final = None
+        self.shimmer = w.get("shimmer", 0.0)
+        self.sh_speed = w.get("shimmer_speed", 0.07)
+        self.sh_col = hex_bgr(w.get("shimmer_colour", "#fff0c8"))
+        self.diag = ((self.u + 0.45 * self.v) / (self.width + 0.45 * self.height)).astype(np.float32)
 
     def row_events(self):
         return [(self.t0 + k * self.row_time, 1 if k % 2 else -1) for k in range(self.nrows - 2)]
@@ -91,11 +96,22 @@ class Weave:
         if t < self.t0:
             return None
         gl = self.glint_at(t)
-        if t >= self.finish() and gl is None and self.finished is not None:
+        if t >= self.finish() and gl is None and self.finished is not None and not self.shimmer:
             return self.finished
-        p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
-        a = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
+        if t >= self.finish():
+            if self.a_final is None:
+                p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
+                self.a_final = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
+            a = self.a_final
+        else:
+            p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
+            a = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
         col = self.colour
+        if self.shimmer:
+            # Couched metal thread: a slow candlelit sheen slides diagonally across the floats.
+            band = (0.5 + 0.5 * np.cos(2 * math.pi * (self.diag * 1.6 - self.sh_speed * t))) ** 8
+            k = self.shimmer * (0.8 + 0.2 * math.sin(2.3 * t))
+            col = col + (self.sh_col - col) * (band * self.spec_mask * k)[..., None]
         if gl is not None:
             pos, level, width = gl
             span = self.width + self.height

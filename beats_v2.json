@@ -30,10 +30,15 @@
    "seed": 7,
    "lobes": 0.8,
    "lobe_cells": 3.5,
-   "weave_mm": 1.4
+   "weave_mm": 1.4,
+   "capillary": 0.55,
+   "capillary_cells": 22,
+   "capillary_sharp": 6.0,
+   "wick": {"on": true, "mm": 3.2, "run_mm": 7.0, "fraction": 0.16, "slow": 0.35}
   },
   "texture": {"grain": 0.04, "fibre": 0.04},
   "gloss": 0.12,
+  "sheen": {"on": true, "front": 0.6, "meniscus_s": 0.14, "wet": 0.09, "wet_s": 1.1, "sway": 0.35, "normal_blur_mm": 1.0, "colour": "#ffe4c0", "glow": 0.3, "glow_mm": 1.6},
   "gold_resist": 0.25,
   "gravity": 0.12,
   "resolution": 0.75,
@@ -45,23 +50,29 @@
   "speed": 34.0,
   "stitch_mm": 3.6,
   "width_mm": 0.95,
-  "colours": {"olive": "#4b4a24", "blackgreen": "#1c2a1b", "rust": "#6e3518", "deepolive": "#353a1c"},
-  "highlight": {"olive": "#68663a", "blackgreen": "#304529", "rust": "#8e4f2b", "deepolive": "#4f5530"},
+  "colours": {"olive": "#4b4a24", "blackgreen": "#1c2a1b", "rust": "#6e3518", "deepolive": "#353a1c", "bud": "#5a2416", "petal": "#6b5a2c"},
+  "highlight": {"olive": "#68663a", "blackgreen": "#304529", "rust": "#8e4f2b", "deepolive": "#4f5530", "bud": "#7f3a24", "petal": "#8a7742"},
   "shadow": "#090b06",
-  "mix": {"olive": 0.4, "blackgreen": 0.35, "deepolive": 0.17, "rust": 0.08},
+  "shadow_soft": {"on": true, "strength": 0.55, "blur_mm": 1.4, "offset": [0.75, 1.0]},
+  "mix": {"olive": 0.4, "blackgreen": 0.35, "deepolive": 0.17, "rust": 0.08, "bud": 0.0, "petal": 0.0},
   "knot_colours": ["rust", "rust", "olive"],
   "light": [-0.6, -0.8],
   "avoid_regions": ["banner"]
  },
- "banner": {"colour": "#c99b45", "hi": "#f2d488", "lo": "#7a5a22", "pitch": 0.014, "fill": 0.72, "warp": 0.06, "duty": 0.955, "jitter": 0.12, "twill": 0.37},
+ "banner": {"colour": "#c99b45", "hi": "#f2d488", "lo": "#7a5a22", "pitch": 0.014, "fill": 0.72, "warp": 0.06, "duty": 0.955, "jitter": 0.12, "twill": 0.37, "shimmer": 0.16, "shimmer_speed": 0.07},
+ "splash": {"on": true, "stain": true, "energy": 1.0, "count": 1.0},
  "camera": {
   "ease": "settle",
   "dip": 0.18,
   "dip_max": 0.22,
-  "drift": {
-   "amp": [0.0025, 0.0012],
-   "freq": [0.37, 0.29],
-   "phase": [0.0, 1.0]
+  "handheld": {
+   "amp": [0.0045, 0.0035],
+   "roll_deg": 0.22,
+   "zoom": 0.004,
+   "freqs": [0.11, 0.23, 0.47, 0.93, 1.9],
+   "weights": [1.0, 0.7, 0.4, 0.2, 0.08],
+   "fade_s": 0.9,
+   "seed": 13
   }
  },
  "regions": {
@@ -139,6 +150,7 @@
    "id": "B01",
    "name": "Establish",
    "duration": 3.0,
+   "handheld": 0.6,
    "desc": "Full tapestry, pristine, gentle candlelight flicker",
    "camera": [
     {"t": 0.0, "x": 0.5, "y": 0.5, "h": 1.06, "provisional": true, "f": 0.0},
@@ -152,14 +164,16 @@
    "id": "B02",
    "name": "Garden",
    "duration": 3.0,
+   "handheld": 0.8,
    "desc": "A vial tilts and one black drop falls into the sleeping king's ear",
    "camera": [
-    {"t": 0.9, "x": 0.268, "y": 0.19, "w": 0.62, "provisional": true, "f": 0.0},
-    {"t": 2.95, "x": 0.262, "y": 0.193, "w": 0.5, "provisional": true, "f": 0.0}
+    {"t": 0.9, "x": 0.268, "y": 0.19, "w": 0.62, "provisional": true, "f": 0.0, "fx": 0.268, "fy": 0.168},
+    {"t": 2.95, "x": 0.262, "y": 0.193, "w": 0.5, "provisional": true, "f": 0.0, "fx": 0.2525, "fy": 0.212}
    ],
    "props": [
     {
      "kind": "vial",
+     "clip": "garden",
      "t": 0.0,
      "hand": [0.268, 0.162],
      "ear": [0.2525, 0.2122],
@@ -178,6 +192,7 @@
    "id": "B03",
    "name": "Bloom",
    "duration": 3.0,
+   "handheld": 0.9,
    "desc": "Ink blooms out of the king into the cloth",
    "camera": [
     {"t": 0.2, "x": 0.25, "y": 0.2, "w": 0.5, "provisional": true, "f": 0.0},
@@ -203,10 +218,11 @@
    "id": "B04",
    "name": "Crown",
    "duration": 3.0,
+   "handheld": 1.0,
    "desc": "Ink wells from the new king's crown, drips down and soaks the throne",
    "camera": [
-    {"t": 0.4, "x": 0.77, "y": 0.15, "w": 0.5, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.775, "y": 0.18, "w": 0.62, "provisional": true, "f": 0.0}
+    {"t": 0.4, "x": 0.77, "y": 0.15, "w": 0.5, "provisional": true, "f": 0.0, "fx": 0.7688, "fy": 0.12},
+    {"t": 2.9, "x": 0.775, "y": 0.18, "w": 0.62, "provisional": true, "f": 0.0, "fx": 0.77, "fy": 0.2}
    ],
    "seeds": [
     {
@@ -252,10 +268,11 @@
    "id": "B05",
    "name": "Wedding",
    "duration": 3.0,
+   "handheld": 1.0,
    "desc": "Ink runs along the joined hands into the queen",
    "camera": [
-    {"t": 0.3, "x": 0.82, "y": 0.17, "w": 0.55, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.86, "y": 0.17, "w": 0.6, "provisional": true, "f": 0.0}
+    {"t": 0.3, "x": 0.82, "y": 0.17, "w": 0.55, "provisional": true, "f": 0.0, "fx": 0.82, "fy": 0.18},
+    {"t": 2.9, "x": 0.86, "y": 0.17, "w": 0.6, "provisional": true, "f": 0.0, "fx": 0.898, "fy": 0.19}
    ],
    "seeds": [
     {
@@ -276,10 +293,11 @@
    "id": "B06",
    "name": "Walls",
    "duration": 3.0,
+   "handheld": 0.9,
    "desc": "Ink closes in on the castle walls and parts around the ghost",
    "camera": [
-    {"t": 0.4, "x": 0.51, "y": 0.15, "w": 0.82, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.51, "y": 0.145, "w": 0.72, "provisional": true, "f": 0.0}
+    {"t": 0.4, "x": 0.51, "y": 0.15, "w": 0.82, "provisional": true, "f": 0.0, "fx": 0.5125, "fy": 0.13},
+    {"t": 2.9, "x": 0.51, "y": 0.145, "w": 0.72, "provisional": true, "f": 0.0, "fx": 0.5125, "fy": 0.13}
    ],
    "seeds": [
     {"x": 0.36, "y": 0.235, "t": 0.1, "speed": 0.06, "radius": 0.34, "clip": "battlement", "provisional": true},
@@ -292,11 +310,13 @@
    "id": "B07",
    "name": "Command",
    "duration": 3.0,
+   "handheld": 0.9,
+   "lens": [{"t": 0.9, "dur": 0.6, "amount": 0.18}],
    "desc": "The ghost greys to light cool grey; a thin grey thread runs to the prince",
    "camera": [
-    {"t": 0.3, "x": 0.505, "y": 0.13, "w": 0.6, "provisional": true, "f": 0.0},
-    {"t": 1.0, "x": 0.5, "y": 0.135, "w": 0.62, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.36, "y": 0.23, "w": 0.95, "provisional": true, "f": 0.0}
+    {"t": 0.3, "x": 0.505, "y": 0.13, "w": 0.6, "provisional": true, "f": 0.0, "fx": 0.512, "fy": 0.128},
+    {"t": 1.0, "x": 0.5, "y": 0.135, "w": 0.62, "provisional": true, "f": 0.0, "fx": 0.512, "fy": 0.128},
+    {"t": 2.9, "x": 0.36, "y": 0.23, "w": 0.95, "provisional": true, "f": 0.0, "fx": 0.198, "fy": 0.312}
    ],
    "events": [
     {"kind": "grey", "region": "ghost", "t": 0.2, "dur": 1.6}
@@ -319,6 +339,7 @@
    "id": "B08",
    "name": "Prince",
    "duration": 3.0,
+   "handheld": 1.0,
    "desc": "Ink seeps from the prince's feet",
    "camera": [
     {"t": 0.3, "x": 0.19, "y": 0.4, "w": 0.55, "provisional": true, "f": 0.0},
@@ -334,11 +355,12 @@
    "id": "B09",
    "name": "Courtiers",
    "duration": 3.0,
+   "handheld": 1.1,
    "desc": "Ink hops between the two courtiers and splashes across the players' stage",
    "camera": [
-    {"t": 0.2, "x": 0.47, "y": 0.36, "w": 0.62, "provisional": true, "f": 0.0},
-    {"t": 1.4, "x": 0.52, "y": 0.37, "w": 0.7, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.72, "y": 0.38, "w": 0.82, "provisional": true, "f": 0.0}
+    {"t": 0.2, "x": 0.47, "y": 0.36, "w": 0.62, "provisional": true, "f": 0.0, "fx": 0.43, "fy": 0.3},
+    {"t": 1.4, "x": 0.52, "y": 0.37, "w": 0.7, "provisional": true, "f": 0.0, "fx": 0.565, "fy": 0.355},
+    {"t": 2.9, "x": 0.72, "y": 0.38, "w": 0.82, "provisional": true, "f": 0.0, "fx": 0.8, "fy": 0.4}
    ],
    "seeds": [
     {
@@ -385,6 +407,8 @@
    "id": "B10",
    "name": "Arras",
    "duration": 3.0,
+   "handheld": 1.5,
+   "lens": [{"t": 0.95, "dur": 0.35, "amount": 0.4}],
    "desc": "Ink bursts through the curtain where the sword strikes",
    "camera": [
     {"t": 0.2, "x": 0.15, "y": 0.59, "w": 0.55, "provisional": true, "f": 0.0},
@@ -411,10 +435,11 @@
    "id": "B11",
    "name": "Sprout",
    "duration": 3.0,
+   "handheld": 0.8,
    "desc": "First weeds sprout from the oldest ink, in the garden",
    "camera": [
-    {"t": 0.2, "x": 0.2, "y": 0.18, "w": 0.6, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.19, "y": 0.19, "w": 0.52, "provisional": true, "f": 0.0}
+    {"t": 0.2, "x": 0.2, "y": 0.18, "w": 0.6, "provisional": true, "f": 0.0, "fx": 0.19, "fy": 0.2},
+    {"t": 2.9, "x": 0.19, "y": 0.19, "w": 0.52, "provisional": true, "f": 0.0, "fx": 0.19, "fy": 0.2}
    ],
    "weeds": [
     {
@@ -447,11 +472,12 @@
    "id": "B12",
    "name": "Petals",
    "duration": 3.0,
+   "handheld": 0.9,
    "desc": "Petals fall from her bouquet, seed ink where they land, and the river turns black",
    "camera": [
-    {"t": 0.1, "x": 0.52, "y": 0.62, "w": 0.6, "provisional": true, "f": 0.0},
-    {"t": 1.6, "x": 0.53, "y": 0.66, "w": 0.75, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.55, "y": 0.68, "w": 1.05, "provisional": true, "f": 0.0}
+    {"t": 0.1, "x": 0.52, "y": 0.62, "w": 0.6, "provisional": true, "f": 0.0, "fx": 0.5288, "fy": 0.6},
+    {"t": 1.6, "x": 0.53, "y": 0.66, "w": 0.75, "provisional": true, "f": 0.0, "fx": 0.52, "fy": 0.69},
+    {"t": 2.9, "x": 0.55, "y": 0.68, "w": 1.05, "provisional": true, "f": 0.0, "fx": 0.52, "fy": 0.69}
    ],
    "props": [
     {
@@ -500,10 +526,11 @@
    "id": "B13",
    "name": "Blade",
    "duration": 3.0,
+   "handheld": 1.0,
    "desc": "Ink runs back along the poisoned blade to the hand that holds it",
    "camera": [
-    {"t": 0.2, "x": 0.2, "y": 0.8, "w": 0.55, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.18, "y": 0.81, "w": 0.62, "provisional": true, "f": 0.0}
+    {"t": 0.2, "x": 0.2, "y": 0.8, "w": 0.55, "provisional": true, "f": 0.0, "fx": 0.2437, "fy": 0.7926},
+    {"t": 2.9, "x": 0.18, "y": 0.81, "w": 0.62, "provisional": true, "f": 0.0, "fx": 0.1475, "fy": 0.8137}
    ],
    "seeds": [
     {
@@ -525,14 +552,16 @@
    "id": "B14",
    "name": "Goblet",
    "duration": 3.0,
+   "handheld": 0.9,
    "desc": "A pearl drops into the goblet and the spilled cup soaks the tablecloth",
    "camera": [
-    {"t": 0.1, "x": 0.548, "y": 0.79, "w": 0.5, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.545, "y": 0.81, "w": 0.64, "provisional": true, "f": 0.0}
+    {"t": 0.1, "x": 0.548, "y": 0.79, "w": 0.5, "provisional": true, "f": 0.0, "fx": 0.5463, "fy": 0.775},
+    {"t": 2.9, "x": 0.545, "y": 0.81, "w": 0.64, "provisional": true, "f": 0.0, "fx": 0.5463, "fy": 0.83}
    ],
    "props": [
     {
      "kind": "pearl",
+     "clip": "feast",
      "t": 0.2,
      "from": [0.556, 0.738],
      "to": [0.5463, 0.784],
@@ -571,14 +600,16 @@
    "id": "B15",
    "name": "Topple",
    "duration": 3.0,
+   "handheld": 1.3,
    "desc": "The usurper's crown topples and rolls",
    "camera": [
-    {"t": 0.1, "x": 0.83, "y": 0.82, "w": 0.52, "provisional": true, "f": 0.0},
-    {"t": 2.9, "x": 0.845, "y": 0.84, "w": 0.6, "provisional": true, "f": 0.0}
+    {"t": 0.1, "x": 0.83, "y": 0.82, "w": 0.52, "provisional": true, "f": 0.0, "fx": 0.8125, "fy": 0.81},
+    {"t": 2.9, "x": 0.845, "y": 0.84, "w": 0.6, "provisional": true, "f": 0.0, "fx": 0.89, "fy": 0.89}
    ],
    "props": [
     {
      "kind": "crown",
+     "clip": "topple",
      "t": 0.25,
      "at": [0.8125, 0.812],
      "size": 0.028,
@@ -596,6 +627,7 @@
    "id": "B16",
    "name": "Tide",
    "duration": 3.0,
+   "handheld": 1.2,
    "desc": "A saturation tide covers the rest; weeds overrun the meadow",
    "camera": [
     {"t": 0.2, "x": 0.5, "y": 0.7, "w": 1.45, "provisional": true, "f": 0.0},
@@ -612,6 +644,7 @@
    "id": "B17",
    "name": "Pullback",
    "duration": 4.0,
+   "handheld": 0.7,
    "desc": "The tapestry is nearly black and overgrown; the ghost stays light grey; gold threads glint",
    "camera": [
     {"t": 0.4, "x": 0.5, "y": 0.52, "h": 1.04, "provisional": true, "f": 0.0},
@@ -628,10 +661,11 @@
    "id": "B18",
    "name": "Banner",
    "duration": 4.0,
+   "handheld": 0.6,
    "desc": "The gold banner is woven over the dark, row by row",
    "camera": [
-    {"t": 0.3, "x": 0.5, "y": 0.7, "w": 1.6, "provisional": true, "f": 0.0},
-    {"t": 3.9, "x": 0.5, "y": 0.85, "w": 0.9, "provisional": true, "f": 0.0}
+    {"t": 0.3, "x": 0.5, "y": 0.7, "w": 1.6, "provisional": true, "f": 0.0, "fx": 0.5, "fy": 0.85},
+    {"t": 3.9, "x": 0.5, "y": 0.85, "w": 0.9, "provisional": true, "f": 0.0, "fx": 0.5, "fy": 0.85}
    ],
    "weaves": [
     {
@@ -649,6 +683,8 @@
    "id": "B19",
    "name": "Falter",
    "duration": 3.0,
+   "handheld": 0.8,
+   "lens": [{"t": 1.25, "dur": 0.7, "amount": 0.25}],
    "desc": "A glint runs across the banner, then falters; weeds push through the gaps",
    "camera": [
     {"t": 0.2, "x": 0.5, "y": 0.85, "w": 0.8, "provisional": true, "f": 0.0},
@@ -665,6 +701,7 @@
    "id": "B20",
    "name": "Spill",
    "duration": 6.0,
+   "handheld": 1.0,
    "desc": "Weeds cross the tapestry edge onto the board and desk; the view pulls back to the full camera frame",
    "camera": [
     {"t": 0.0, "x": 0.5, "y": 0.82, "w": 1.0, "provisional": true, "f": 0.0},
@@ -679,6 +716,7 @@
    "id": "B21",
    "name": "Hold",
    "duration": 10.0,
+   "handheld": 0.0,
    "desc": "Hold in total silence until a key is pressed",
    "camera": [
     {"t": 0.0, "x": 0.5, "y": 0.5, "h": 1.06, "f": 1.0, "provisional": true}

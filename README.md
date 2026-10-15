@@ -24,9 +24,14 @@ Pick portrait `tabloid` or `letter` in `config.json` and regenerate `markers.pdf
 | R | Restart and play |
 | V | Virtual camera / full composited camera frame |
 | D | Operator debug display, including camera/audio status |
+| C | Open / close the operator controls window |
+| T | Cycle the ink tone (Iron gall, Lamp black, Oxblood) |
+| P | Switch quality preset (live / render), rebuilt in the background |
 | B | Start the preloaded backup from its beginning, fullscreen |
 | L | Return to live rendering |
 | Esc / Q | Quit |
+
+The controls window (`--controls`, or C) is a separate window for the laptop screen, so the projector output stays clean. It shows a preview, a scrubber with beat ticks (click or drag to seek), the beat list (click to jump), play/restart/step buttons, the three ink tones and the two quality presets. A preset switch builds the new renderer on a background thread while the show keeps running; the first build of `render` can take a while until its arrival field is cached in `.cache/`. `--quality render` starts in the render preset.
 
 B21 freezes the image and silences audio from 65 seconds. It remains on screen after 75 seconds until a control is used. Operator text is hidden unless debug is enabled.
 
@@ -52,7 +57,18 @@ This writes a 1920x1080, 30 fps, 75-second MP4, a matching WAV and a PNG contact
 .\.venv\Scripts\python.exe render.py --mode video --source assets/board_recording.mp4 --beats beats_mapped.json --out renders/backup_sharp.mp4
 ```
 
-`--quality render` uses full-resolution composition; `--quality live` matches the optimized live path. `--no-audio`, `--no-atmosphere`, `--fps`, `--size`, `--start`, `--end`, `--sheet-only` and `--frames` support focused reviews. A clip's audio starts at the same timeline position as its picture.
+`--quality render` uses full-resolution composition; `--quality live` matches the optimized live path. `--tone` picks the ink tone, `--no-lens` turns off depth of field, rack focus, bloom and dust motes. `--no-audio`, `--no-atmosphere`, `--fps`, `--size`, `--start`, `--end`, `--sheet-only` and `--frames` support focused reviews. A clip's audio starts at the same timeline position as its picture.
+
+## Look and camera
+
+- **Ink.** Absorbent warp and weft threads pull thin, connected fingers of ink ahead of each front (`ink.cost.wick`, sized in millimetres), and a ridged-noise channel network breaks fronts into branching capillary fingers (`capillary`). Both change the arrival field, so stains stall with fingered edges and weeds still root only in soaked cloth. Fresh ink carries an additive wet sheen: a thin meniscus glint on the light-facing side of a moving front, glints on thread tops while wet, a soft glow, and a slow candle sway between two light directions (`ink.sheen`). It fades as the ink dries to matte black. The sheen is a separate additive layer, so it never lightens the permanent ink.
+- **Weeds.** Stems taper, stitches have a dark edge, a lit core and a highlight whose strength depends on how the thread lies against the light, plus twist striations and specular dots in the render preset. Leaves are fishbone satin (slanted stitches into a midrib, so the two halves catch light differently). Stem tips end in French knots, satin buds with a calyx, or small lazy-daisy flowers (`bud` and `petal` colours). Every stitch casts a soft drop shadow (`weeds.shadow_soft`), most visible where runners cross the white board and the desk.
+- **Splashes.** Impacts throw ballistic droplets with motion streaks and highlights: the vial at the ear, the hops and arras spray, the pearl in the goblet (with a ring on the wine), petals on the river and the crown on the floor. Each landing leaves a small satellite stain that blooms a moment after impact (`splash`; set `stain: false` to keep droplets only). The `clip` on the vial, pearl and crown keeps their satellites inside the right bay.
+- **Camera.** Handheld motion layers smooth noise into position, roll and zoom, scaled per beat with `"handheld"` (0 = locked, 1 = normal) and faded out as the view opens to the full camera frame. Camera keys may add `fx`, `fy`: the focus target, which trails the camera by `lens.lag`, so a key change racks focus from one subject to another. Fast camera moves soften the whole frame and resolve when the camera lands (`lens.rack`). Beats may add `"lens": [{"t", "dur", "amount"}]` for a deliberate focus pull. Depth of field falls off radially around the focus target (`lens.dof`), weaker on wide shots and gone in the full camera frame. Bright highlights bloom softly.
+- **Dust.** Motes drift through the candlelight between lens and cloth as soft bokeh, brighter near the light (`motes`), with parallax against camera moves. They stop in the final hold.
+- **Banner.** A slow sheen slides across the couched gold (`banner.shimmer`), beneath the glint that falters in B19.
+
+Each preset has an `fx` block in `config.json`. `live` turns off the costlier passes (glow, stitch detail, radial depth of field, bloom) and keeps rack-focus softening only; `render` turns everything on. Layers are warped only over the screen area they cover, which keeps the live preset at roughly its previous frame time on synthetic input. Measure on the classroom laptop with `benchmark.py` and switch individual `fx` flags off if needed.
 
 ## Remap the real drawing
 
@@ -69,7 +85,7 @@ Choose `ghost` or a bounds region, press **P**, click its polygon vertices, and 
 
 Scrub the bottom slider for an effect preview or press Space with the canvas focused. Preview fields rebuild in the background after edits. It is intentionally lower resolution than final export. Polygon names and beat timing remain intact when saving; the editor preserves other beat data.
 
-Before presenting, align the vial hand/ear, the joined hands, the ghost polygon and command thread, river/petal landings, blade path, cup, rolling crown and floor. Adjust camera widths/heights numerically in the beat file if the drawing's composition needs different close-ups. Check the gold-detection thresholds against the actual pencils or paint. Confirm the desk spill fits the real camera view and marker spacing.
+Before presenting, align the vial hand/ear, the joined hands, the ghost polygon and command thread, river/petal landings, blade path, cup, rolling crown and floor. Adjust camera widths/heights numerically in the beat file if the drawing's composition needs different close-ups. Focus targets (`fx`, `fy`) are separate from camera centres and the editor does not move them; update them by hand after remapping. Check the gold-detection thresholds against the actual pencils or paint. Confirm the desk spill fits the real camera view and marker spacing.
 
 ## Configuration and sound
 

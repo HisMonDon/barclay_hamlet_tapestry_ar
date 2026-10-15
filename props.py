@@ -142,6 +142,9 @@ class Prop:
     def seeds(self):
         return []
 
+    def impacts(self):
+        return []
+
     def cues(self):
         return []
 
@@ -176,6 +179,10 @@ class Vial(Prop):
 
     def cues(self):
         return [("vial", self.t_impact)]
+
+    def impacts(self):
+        return [{"at": self.ear.tolist(), "t": self.t_impact, "count": 9, "energy": 0.17, "size": 0.0028,
+                 "spread": 70, "clip": self.spec.get("clip"), "seed": 31}]
 
     def angle(self, t):
         return self.tilt * ease((t - self.t0) / self.tilt_s)
@@ -236,12 +243,6 @@ class Vial(Prop):
         else:
             p = (t - self.t_impact) / 0.45
             if p < 1.0:
-                rng = np.random.default_rng(3)
-                for k in range(7):
-                    a = -math.pi * (0.1 + 0.8 * k / 6) + rng.normal(0, 0.12)
-                    v = sz * rng.uniform(0.35, 0.6)
-                    q = drop + np.array([math.cos(a) * v * p, math.sin(a) * v * p + sz * 0.9 * p * p])
-                    sp.disc(q, sz * 0.022 * (1 - p), INK_DROP, 1.0 - p * 0.6)
                 sp.line(drop + sz * 0.12 * (0.4 + p) * np.stack([np.cos(th), 0.45 * np.sin(th)], 1), INK_DROP, 0.5,
                         closed=True, alpha=0.7 * (1 - p))
         out = sp.done()
@@ -327,6 +328,10 @@ class Crown(Prop):
 
     def window(self):
         return self.t0, self.t0 + 60.0
+
+    def impacts(self):
+        return [{"at": [float(self.land[0]), float(self.floor - self.R * 0.1)], "t": self.t0 + self.tA + self.tB, "count": 8,
+                 "energy": 0.2, "size": 0.0026, "spread": 75, "clip": self.spec.get("clip"), "seed": 47}]
 
     def pose(self, t):
         tau = t - self.t0
@@ -456,6 +461,10 @@ class Petals(Prop):
     def window(self):
         return self.t0, self.times()[-1] + self.fall + 1.5
 
+    def impacts(self):
+        return [{"at": d.tolist(), "t": ts + self.fall, "count": 3, "energy": 0.1, "size": 0.0016, "spread": 55,
+                 "stain": False, "colour": "#3b4a52", "seed": 60 + k} for k, (d, ts) in enumerate(zip(self.land, self.times()))]
+
     def stamps(self, t):
         a, b = self.window()
         if t < a or t > b:
@@ -509,7 +518,11 @@ class Pearl(Prop):
         self.fall = spec.get("fall", 0.42)
 
     def window(self):
-        return self.t0, self.t0 + self.fall + 0.5
+        return self.t0, self.t0 + self.fall + 0.02
+
+    def impacts(self):
+        return [{"at": self.b.tolist(), "t": self.t0 + self.fall, "count": 9, "energy": 0.24, "size": 0.0022, "spread": 48,
+                 "ring": 0.01, "ring_colour": "#2a1c12", "clip": self.spec.get("clip"), "seed": 71}]
 
     def stamps(self, t):
         a, b = self.window()
@@ -528,13 +541,6 @@ class Pearl(Prop):
             sp.disc(pos + np.array([r * 0.25, r * 0.25]), r * 0.7, (178, 190, 198), 0.6)
             sp.disc(pos - np.array([r * 0.35, r * 0.35]), r * 0.3, (255, 255, 255), 0.9)
             sp.line(np.stack([pos[0] + r * np.cos(np.linspace(0, 6.3, 24)), pos[1] + r * np.sin(np.linspace(0, 6.3, 24))], 1), INK, 0.3)
-        else:
-            q = (t - self.t0 - self.fall) / 0.5
-            for k in range(4):
-                ang = -math.pi * (0.25 + 0.5 * k / 3)
-                d = r * 3.5 * q
-                pos = self.b + np.array([math.cos(ang) * d, math.sin(ang) * d + r * 6 * q * q])
-                sp.disc(pos, r * 0.35 * (1 - q), INK_DROP, 1 - q * 0.5)
         out = sp.done()
         return [out] if out else []
 
@@ -573,6 +579,11 @@ class Drops(Prop):
     def landings(self):
         return [(d, s + du) for d, s, du in zip(self.dst, self.starts, self.durs)]
 
+    def impacts(self):
+        clip = self.spec.get("seed", {}).get("clip")
+        return [{"at": d.tolist(), "t": tl, "count": 3, "energy": 0.12, "size": float(r) / self.tw * 0.45, "spread": 60,
+                 "clip": clip, "seed": 80 + k} for k, ((d, tl), r) in enumerate(zip(self.landings(), self.size))]
+
     def seeds(self):
         out = []
         base = self.spec.get("seed", {})
@@ -604,12 +615,6 @@ class Drops(Prop):
                 u = vel / (np.linalg.norm(vel) + 1e-9)
                 tail = pos - u * r * 2.6
                 sp.fill(teardrop(tail, pos, r), INK_DROP)
-            else:
-                q = (t - st - du) / 0.25
-                if q < 1:
-                    for k in range(3):
-                        ang = -math.pi * (0.2 + 0.3 * k)
-                        sp.disc(d0 + np.array([math.cos(ang), math.sin(ang)]) * r * 3 * q, r * 0.4 * (1 - q), INK_DROP)
         out = sp.done()
         return [out] if out else []
 
@@ -681,4 +686,18 @@ def build(timeline, ctx):
         cls = KINDS.get(spec.get("kind"))
         if cls is not None:
             props.append(cls(spec, t0, ctx))
+    sc = getattr(ctx, "splash", None) or {}
+    if sc.get("on", True):
+        from particles import Splash
+        for p in list(props):
+            for imp in p.impacts():
+                spec = {k: v for k, v in imp.items() if v is not None}
+                spec["kind"] = "splash"
+                spec["energy"] = spec.get("energy", 0.18) * sc.get("energy", 1.0)
+                spec["count"] = max(0, int(round(spec.get("count", 6) * sc.get("count", 1.0))))
+                if not sc.get("stain", True):
+                    spec["stain"] = False
+                t = spec.pop("t")
+                if spec["count"]:
+                    props.append(Splash(spec, t, ctx))
     return props

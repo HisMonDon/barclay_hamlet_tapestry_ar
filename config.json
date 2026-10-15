@@ -10,7 +10,14 @@
  "overlay_margin": 0.8,
  "beats": "beats_v2.json",
  "quality": {
-  "live": {"ink_resolution": 0.4, "overlay_scale": 0.7, "output_scale": 1.0, "composite_scale": 0.55, "direct_scan": false},
+  "live": {
+   "ink_resolution": 0.4,
+   "overlay_scale": 0.7,
+   "output_scale": 1.0,
+   "composite_scale": 0.55,
+   "direct_scan": false,
+   "fx": {"sheen_glow": false, "stitch_detail": false, "dof_levels": 1, "dof_radial": false, "bloom": false}
+  },
   "render": {
    "ink_resolution": 1.0,
    "overlay_scale": 1.6,
@@ -18,7 +25,8 @@
    "composite_scale": 1.0,
    "direct_scan": true,
    "video_crf": 16,
-   "video_preset": "medium"
+   "video_preset": "medium",
+   "fx": {"sheen_glow": true, "stitch_detail": true, "dof_levels": 2, "bloom": true}
   }
  },
  "atmosphere": {
@@ -26,6 +34,14 @@
   "vignette": {"on": true, "strength": 0.14, "softness": 0.65, "tint": "#fff2df"},
   "grain": {"on": true, "amount": 0.7, "fps": 24, "seed": 21, "frames": 6}
  },
+ "lens": {
+  "lag": 0.2,
+  "rack": 0.55,
+  "rack_speed": [0.15, 0.9],
+  "dof": {"on": true, "strength": 0.6, "r0": 0.34, "r1": 1.15, "ellipse": 0.72, "blur_px": 5.5, "wide": [0.6, 1.4, 0.3]},
+  "bloom": {"on": true, "threshold": 226, "strength": 0.3, "radius_px": 22}
+ },
+ "motes": {"on": true, "count": 48, "seed": 5, "brightness": 75, "colour": "#ffd8a8", "near_px": 26, "parallax": 0.35, "light": [0.22, 0.2]},
  "sound": {
   "on": true,
   "rate": 44100,

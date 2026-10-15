@@ -5,7 +5,9 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 CONFIG = ROOT / "config.json"
 MM_PER_IN = 25.4
-SECTIONS = ("quality", "atmosphere", "sound", "camera_input", "backup_video", "cache_dir", "debug", "editor", "tracking", "performance")
+SECTIONS = ("quality", "atmosphere", "lens", "motes", "sound", "camera_input", "backup_video", "cache_dir", "debug", "editor", "tracking", "performance")
+FX = {"sheen": True, "sheen_glow": True, "weed_shadow": True, "stitch_detail": True, "dof": True, "dof_levels": 2,
+      "dof_radial": True, "bloom": True, "motes": True, "splash": True}
 
 
 def read(path):
@@ -47,6 +49,7 @@ def load(beats_path=None, config_path=CONFIG, paper=None, quality="live"):
         cfg["ink"]["resolution"] = q["ink_resolution"]
     cfg["overlay"]["scale"] = q.get("overlay_scale", 1.0)
     cfg["output_scale"] = q.get("output_scale", 1.0)
+    cfg["fx"] = {**FX, **q.get("fx", {})}
     cfg["beats_path"] = str(beats_path)
     cfg["root"] = str(ROOT)
     return cfg

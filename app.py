@@ -13,6 +13,7 @@ from tracking import BoardTracker
 from live import BackupPlayer, ResilientCamera, open_camera
 from sound import AudioPlayer, Soundtrack, backup_track
 from config import resolve
+from controls import Controls, Rebuild
 
 KEYS_LEFT = {2424832, 65361, 63234, 81}
 KEYS_RIGHT = {2555904, 65363, 63235, 83}
@@ -70,16 +71,32 @@ def main():
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--backup", default=None)
     ap.add_argument("--play-backup", action="store_true")
+    ap.add_argument("--quality", default="live", choices=["live", "render"], help="starting quality preset (P switches)")
+    ap.add_argument("--controls", action="store_true", help="open the operator controls window (C toggles)")
     args = ap.parse_args()
 
-    cfg = load(args.beats or default_beats(args.config), args.config)
+    beats_path = args.beats or default_beats(args.config)
+    cfg = load(beats_path, args.config, quality=args.quality)
     cv2.setNumThreads(cfg.get("performance", {}).get("opencv_threads", 4))
     if args.no_audio:
         cfg.setdefault("sound", {})["on"] = False
     if args.tone:
+        if args.tone not in cfg["ink"]["tones"]:
+            raise SystemExit(f"Unknown tone {args.tone!r}; choose from {', '.join(cfg['ink']['tones'])}")
         cfg["ink"]["tone"] = args.tone
     renderer = Renderer(cfg)
     timeline = renderer.timeline
+    tones = list(cfg["ink"]["tones"])
+    quality = args.quality
+    controls = Controls(timeline, tones, cfg["ink"]["tone"], quality)
+    rebuild = Rebuild()
+
+    def make_renderer(q, tone):
+        c = load(beats_path, args.config, quality=q)
+        c["ink"]["tone"] = tone
+        if args.no_audio:
+            c.setdefault("sound", {})["on"] = False
+        return Renderer(c)
     camera_settings = cfg.get("camera_input", {})
     cw, ch = (int(v) for v in (args.capture_size or camera_settings.get("capture_size", "1920x1080")).lower().split("x"))
     camera = ResilientCamera(args.camera or camera_settings.get("source", "0"), (cw, ch), camera_settings)
@@ -97,6 +114,8 @@ def main():
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
     if not args.windowed:
         cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    if args.controls:
+        controls.show()
 
     frame, final_frame = None, None
     debug = args.debug or cfg.get("debug", {}).get("hud", False)
@@ -126,6 +145,18 @@ def main():
             else:
                 out = np.full((renderer.oh, renderer.ow, 3), renderer.comp.bg, np.uint8)
             audio.sync(t, playing and ready, now)
+            fresh = rebuild.take()
+            if fresh is not None:
+                fresh.tracker.H, fresh.tracker.quad = renderer.tracker.H, renderer.tracker.quad
+                fresh.track_count = renderer.track_count
+                if fresh.cfg["ink"]["tone"] != controls.tone:
+                    fresh.scene.set_tone(controls.tone)
+                renderer, quality = fresh, rebuild.name
+                controls.quality, controls.status = quality, f"Quality preset: {quality}"
+                final_frame = None
+            elif rebuild.error:
+                controls.status, rebuild.error = f"Quality switch failed: {rebuild.error}", None
+            controls.draw(out, t, playing, [f"Building {rebuild.name} preset..."] if rebuild.busy else [])
             lines = []
             if debug:
                 if not connected and not using_backup:
@@ -136,7 +167,8 @@ def main():
                     lines.append("Audio: " + audio.error)
                 if audio.soundtrack.warnings:
                     lines.append(audio.soundtrack.warnings[-1])
-                lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s" + ("  " + notice if notice else ""))
+                lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s  {controls.tone}  {quality}"
+                             + ("  building " + rebuild.name if rebuild.busy else "") + ("  " + notice if notice else ""))
             if lines:
                 hud(out, lines)
             cv2.imshow(WINDOW, out)
@@ -144,6 +176,34 @@ def main():
             if key in KEYS_QUIT:
                 break
             force = False
+            acts = controls.poll()
+            if key in (ord("c"), ord("C")):
+                controls.toggle()
+            elif key in (ord("t"), ord("T")):
+                acts.append(("tone", tones[(tones.index(controls.tone) + 1) % len(tones)]))
+            elif key in (ord("p"), ord("P")):
+                acts.append(("quality", "render" if quality == "live" else "live"))
+            for act in acts:
+                if act[0] == "seek":
+                    t = min(timeline.end, max(0.0, act[1]))
+                    force = True
+                elif act[0] == "step":
+                    t = timeline.step(t, act[1])
+                    force = True
+                elif act[0] == "toggle":
+                    playing = not playing
+                    force = True
+                elif act[0] == "restart":
+                    t, playing = 0.0, True
+                    force = True
+                elif act[0] == "tone" and act[1] != controls.tone:
+                    renderer.scene.set_tone(act[1])
+                    controls.tone = act[1]
+                    controls.status = f"Ink tone: {act[1]}"
+                    final_frame = None
+                elif act[0] == "quality" and act[1] != quality and not using_backup:
+                    if rebuild.start(act[1], lambda q=act[1], tn=controls.tone: make_renderer(q, tn)):
+                        controls.status = f"Building the {act[1]} preset in the background; the show keeps running"
             if key == 32:
                 playing = not playing
                 force = True

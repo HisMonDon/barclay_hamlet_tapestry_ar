@@ -192,9 +192,17 @@ def main():
     ap.add_argument("--size", default="1920x1080", help="synthetic camera frame size for board mode")
     ap.add_argument("--no-atmosphere", action="store_true")
     ap.add_argument("--no-audio", action="store_true")
+    ap.add_argument("--tone", default=None, help="ink tone name from the beat file (e.g. 'Iron gall', 'Lamp black', 'Oxblood')")
+    ap.add_argument("--no-lens", action="store_true", help="disable depth of field, rack focus, bloom and dust motes")
     args = ap.parse_args()
 
     cfg = load(args.beats or default_beats(args.config), args.config, quality=args.quality)
+    if args.tone:
+        if args.tone not in cfg["ink"]["tones"]:
+            ap.error(f"unknown tone {args.tone!r}; choose from {', '.join(cfg['ink']['tones'])}")
+        cfg["ink"]["tone"] = args.tone
+    if args.no_lens:
+        cfg["fx"].update({"dof": False, "bloom": False, "motes": False})
     cv2.setNumThreads(cfg.get("performance", {}).get("opencv_threads", 4))
     if args.source and args.mode != "video":
         cfg["scan"] = str(Path(args.source).resolve())

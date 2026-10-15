@@ -91,6 +91,8 @@ class InkEngine:
         self._static(fb)
         self.set_tone(cfg, ink["tone"])
         self.mult = np.full((self.ink_canvas.h, self.ink_canvas.w, 3), 255, np.uint8)
+        self.spec = np.zeros((self.ink_canvas.h, self.ink_canvas.w), np.uint8)
+        self.spec_max = np.zeros(self.ny * self.nx, np.uint8)
         self._cache_t = None
 
     def _drips(self, seeds):
@@ -159,8 +161,24 @@ class InkEngine:
         mag = np.sqrt(gx * gx + gy * gy) + 1e-6
         L = np.array(self.cfg.get("weeds", {}).get("light", [-0.6, -0.8]), np.float32)
         L /= np.linalg.norm(L)
+        self.light0 = math.atan2(float(L[1]), float(L[0]))
         cosl = np.clip((gx * L[0] + gy * L[1]) / mag, 0.0, 1.0)
-        cosl[(mag > 50.0) | ~fin] = 0.0
+        flat = (mag > 50.0) | ~fin
+        cosl[flat] = 0.0
+        nxm = np.where(flat, 0.0, gx / mag).astype(np.float32)
+        nym = np.where(flat, 0.0, gy / mag).astype(np.float32)
+        sh = p.get("sheen", {})
+        ns = sh.get("normal_blur_mm", 1.2) * iw / self.cfg["board"]["drawing_mm"][0]
+        if ns > 0.3:
+            # Smooth the front direction so wicked fingers share their front's glint instead of strobing individually.
+            nxm = cv2.GaussianBlur(nxm, (0, 0), ns)
+            nym = cv2.GaussianBlur(nym, (0, 0), ns)
+            nn = np.sqrt(nxm * nxm + nym * nym) + 1e-6
+            k = np.clip(nn * 2.0, 0.0, 1.0) / nn
+            nxm, nym = (nxm * k).astype(np.float32), (nym * k).astype(np.float32)
+        self.sheen = bool(sh.get("on", True)) and self.cfg.get("fx", {}).get("sheen", True)
+        self.sway = sh.get("sway", 0.35)
+        wv = np.clip(fb.weave * 2.2 - 0.7 + 0.2 * fb.fibre, 0.0, 1.0) ** 1.5
         tex = p.get("texture", {})
         dm = 1.0 + tex.get("grain", 0.08) * fb.weave + tex.get("fibre", 0.06) * fb.fibre + 0.05 * fb.noise
         dm *= 1.0 - p.get("gold_resist", 0.45) * fb.gold
@@ -173,6 +191,12 @@ class InkEngine:
         self.t_n2 = tiles(n2, ny, nx, 0.0)
         self.t_rim = tiles(np.clip(rimv * 255, 0, 255).astype(np.uint8), ny, nx, 0)
         self.t_cos = tiles(np.clip(cosl * 255, 0, 255).astype(np.uint8), ny, nx, 0)
+        cs = []
+        for a in (self.light0 - self.sway, self.light0 + self.sway):
+            c = np.clip(nxm * math.cos(a) + nym * math.sin(a), 0.0, 1.0)
+            cs.append(tiles(np.clip(c * c * 255, 0, 255).astype(np.uint8), ny, nx, 0))
+        self.t_ca, self.t_cb = cs
+        self.t_wv = tiles(np.clip(wv * 255, 0, 255).astype(np.uint8), ny, nx, 0)
         dm8 = np.clip(dm * self.dm_scale, 0, 255).astype(np.uint8)
         self.t_dm = tiles(cv2.merge([dm8, dm8, dm8]), ny, nx, int(self.dm_scale))
         self.boxes = []
@@ -272,12 +296,21 @@ class InkEngine:
         self.rim_k = float(1.0 - rimc.mean())
         gl = p.get("gloss", 0.12) * front * np.exp(-np.maximum(a, 0) / 0.45) * (1 - dried)
         self.gloss_lut = np.clip(gl * 255, 0, 255).astype(np.uint8).reshape(1, 256)
+        sh = p.get("sheen", {})
+        men = sh.get("front", 0.55) * smoothstep(0.02, 0.02 + 2.5 * edge, a) * np.exp(-np.maximum(a - 0.1, 0) / sh.get("meniscus_s", 0.35))
+        wet = sh.get("wet", 0.16) * smoothstep(0.0, 3.0 * edge, a) * np.exp(-np.maximum(a, 0) / sh.get("wet_s", 1.4))
+        self.men_lut = np.clip(men * 255, 0, 255).astype(np.uint8).reshape(1, 256)
+        self.wet_lut = np.clip(wet * 255, 0, 255).astype(np.uint8).reshape(1, 256)
         self.tone = name
         self.done[:] = -1
         self._cache_t = None
 
     def mult_to_tapestry(self):
         return self.ink_canvas.to_tapestry()
+
+    def light_at(self, t):
+        """Candle flame sway, 0-1 between the two precomputed light directions."""
+        return 0.5 + 0.5 * (0.6 * math.sin(0.71 * t) + 0.3 * math.sin(1.93 * t + 1.1) + 0.1 * math.sin(4.1 * t + 2.0))
 
     def _shade(self, idx_tiles, t):
         k = len(idx_tiles)
@@ -297,8 +330,12 @@ class InkEngine:
         inv = cv2.subtract(np.full_like(m, 255), m)
         inv = cv2.multiply(inv, self.t_dm[idx_tiles].reshape(shp + (3,)), scale=1.0 / self.dm_scale)
         m = cv2.subtract(np.full_like(m, 255), inv)
-        g = cv2.multiply(cv2.LUT(idx, self.gloss_lut), self.t_cos[idx_tiles].reshape(shp), scale=1.0 / 255.0)
-        m = cv2.add(m, cv2.merge([g, g, g]))
+        spec = None
+        if self.sheen:
+            s = self.light_at(t)
+            c8 = cv2.addWeighted(self.t_ca[idx_tiles].reshape(shp), 1.0 - s, self.t_cb[idx_tiles].reshape(shp), s, 0.0)
+            spec = cv2.add(cv2.multiply(cv2.LUT(idx, self.men_lut), c8, scale=1.0 / 255.0),
+                           cv2.multiply(cv2.LUT(idx, self.wet_lut), self.t_wv[idx_tiles].reshape(shp), scale=1.0 / 255.0))
         if self.has_ghost:
             gsel = self.g_tiles[idx_tiles]
             if gsel.any():
@@ -317,7 +354,10 @@ class InkEngine:
                 m = m3.reshape(shp + (3,))
         if self.soften > 0:
             m = cv2.GaussianBlur(m, (3, 3), self.soften)
-        return m.reshape(k, S, S, 3)[:, APRON:APRON + TILE, APRON:APRON + TILE]
+        m = m.reshape(k, S, S, 3)[:, APRON:APRON + TILE, APRON:APRON + TILE]
+        if spec is not None:
+            spec = spec.reshape(k, S, S)[:, APRON:APRON + TILE, APRON:APRON + TILE]
+        return m, spec
 
     def update(self, t):
         b = min(self.nb - 1, max(0, int(t / BIN)))
@@ -325,13 +365,33 @@ class InkEngine:
         need = self.act[:, b] | (ep != self.done)
         idx = np.nonzero(need)[0]
         if len(idx):
-            res = self._shade(idx, t)
+            res, spec = self._shade(idx, t)
             pad = self.ink_canvas.pad
+            if spec is not None:
+                self.spec_max[idx] = spec.reshape(len(idx), -1).max(axis=1)
             for j, k in enumerate(idx):
                 r0, r1, c0, c1 = self.boxes[k]
                 self.mult[pad + r0:pad + r1, pad + c0:pad + c1] = res[j, :r1 - r0, :c1 - c0]
+                if spec is not None:
+                    self.spec[pad + r0:pad + r1, pad + c0:pad + c1] = spec[j, :r1 - r0, :c1 - c0]
             self.done[idx] = ep[idx]
         return len(idx)
+
+    def spec_layer(self, t):
+        """Additive wet-ink reflection in the ink canvas, or None while nothing is wet."""
+        self.layer(t)
+        if not self.sheen or self.spec_max.max() < 3:
+            return None
+        return self.spec
+
+    def spec_box(self):
+        """Ink-canvas rectangle holding every tile with visible sheen."""
+        idx = np.nonzero(self.spec_max >= 3)[0]
+        if not len(idx):
+            return None
+        r, c = idx // self.nx, idx % self.nx
+        p = self.ink_canvas.pad
+        return (p + int(c.min()) * TILE - 2, p + int(r.min()) * TILE - 2, p + (int(c.max()) + 1) * TILE + 2, p + (int(r.max()) + 1) * TILE + 2)
 
     def darkness(self, t):
         return np.clip(1.0 - self.mult[self.ink_canvas.inner].mean(axis=2) / 255.0, 0, 1)

@@ -49,6 +49,11 @@ def streaks(w, h, along, seed):
     return out / max(1e-6, float(np.abs(out).max()))
 
 
+def ridged(w, h, cells, seed, sharp=6.0):
+    n = warped_noise(w, h, cells, 3, 0.05, seed)
+    return ((1.0 - np.abs(n)) ** sharp).astype(np.float32)
+
+
 def thread_texture(w, h, pitch, seed):
     rng = np.random.default_rng(seed)
     ny, nx = int(h / pitch) + 2, int(w / pitch) + 2
@@ -189,6 +194,11 @@ class FieldBuilder:
         cost = np.exp(c.get("lobes", 0.6) * lobes + c.get("noise", 0.55) * noise + c.get("fibre", 0.3) * fib
                       + c.get("weave", 0.12) * self.weave)
         self.line = line_map(scan, iw, ih, c) if scan is not None else np.zeros((ih, iw), np.float32)
+        cap = c.get("capillary", 0.0)
+        if cap:
+            # Ridged noise carves a network of cheap channels: the front breaks into branching capillary fingers.
+            cost = cost * np.exp(-cap * ridged(iw, ih, c.get("capillary_cells", 22), seed + 11, c.get("capillary_sharp", 6.0)))
+        self._wick_setup(c.get("wick", {}), px_mm, seed)
         self.gold = gold_map(scan, iw, ih, c) if scan is not None else np.zeros((ih, iw), np.float32)
         slow, fast = c.get("blank_slow", 1.12), c.get("line_fast", 0.4)
         cost *= slow - (slow - fast) * self.line
@@ -198,6 +208,49 @@ class FieldBuilder:
         self.cost = cost.astype(np.float64)
         self.fibre = fib
         self.noise = noise
+
+    def _wick_setup(self, wk, px_mm, seed):
+        """Absorbent warp/weft threads, sized in millimetres so the look survives every quality preset."""
+        self.wick_h = self.wick_v = None
+        if not wk or not wk.get("on", True) or wk.get("mm", 0.0) <= 0:
+            return
+        iw, ih = self.iw, self.ih
+        c = self.cp
+        pitch = max(1.0, c.get("weave_mm", 1.4) * px_mm)
+        rng = np.random.default_rng(seed + 21)
+        ny_t, nx_t = int(ih / pitch) + 2, int(iw / pitch) + 2
+        run = max(2.0, iw / max(1.0, wk.get("run_mm", 7.0) * px_mm))
+        ah = fractal_noise(iw, ih, run, 2, 0.5, seed + 22) * 0.5 + 0.5
+        av = fractal_noise(iw, ih, run, 2, 0.5, seed + 23) * 0.5 + 0.5
+        rows = rng.random(ny_t).astype(np.float32)
+        cols = rng.random(nx_t).astype(np.float32)
+        ry = rows[np.minimum((np.arange(ih) / pitch).astype(int), ny_t - 1)][:, None]
+        rx = cols[np.minimum((np.arange(iw) / pitch).astype(int), nx_t - 1)][None, :]
+        frac = wk.get("fraction", 0.16)
+        self.wick_h = (0.6 * ry + 0.4 * ah) > 1.0 - frac
+        self.wick_v = (0.6 * rx + 0.4 * av) > 1.0 - frac
+        self.wick_px = max(1.0, wk.get("mm", 3.0) * px_mm)
+        self.wick_slow = wk.get("slow", 0.35)
+
+    def wick(self, D, r0=0, r1=None, c0=0, c1=None):
+        """Pull arrival distance along absorbent threads: ink runs ahead of the front in thin, connected fingers."""
+        if self.wick_h is None:
+            return D
+        r1 = self.ih if r1 is None else r1
+        c1 = self.iw if c1 is None else c1
+        mh, mv = self.wick_h[r0:r1, c0:c1], self.wick_v[r0:r1, c0:c1]
+        Df = np.where(np.isfinite(D), D, 1e9).astype(np.float32)
+        out = Df.copy()
+        for f in (0.3, 0.6, 1.0):
+            n = max(1, int(round(self.wick_px * f)))
+            pen = np.float32(n * self.ell * self.wick_slow)
+            eh = cv2.erode(Df, np.ones((1, 2 * n + 1), np.uint8)) + pen
+            ev = cv2.erode(Df, np.ones((2 * n + 1, 1), np.uint8)) + pen
+            np.minimum(out, np.where(mh, eh, np.float32(1e9)), out=out)
+            np.minimum(out, np.where(mv, ev, np.float32(1e9)), out=out)
+        out = out.astype(np.float64)
+        out[out >= 1e8] = np.inf
+        return out
 
     def _ghost_mask(self):
         g = self.cfg.get("ghost")
@@ -210,7 +263,7 @@ class FieldBuilder:
         h = hashlib.sha1()
         h.update(json.dumps([seeds, tides, self.ink.get("cost"), self.ink.get("gravity"), self.cfg.get("ghost"),
                              self.cfg.get("regions", {}).get(self.cfg.get("ghost", {}).get("region", ""), None),
-                             self.iw, self.ih, 3], sort_keys=True, default=str).encode())
+                             self.iw, self.ih, 4], sort_keys=True, default=str).encode())
         if self.scan is not None:
             h.update(cv2.resize(self.scan, (64, 64), interpolation=cv2.INTER_AREA).tobytes())
         return h.hexdigest()[:16]
@@ -258,6 +311,7 @@ class FieldBuilder:
         g = self.ink.get("gravity", 0.0) + s.get("gravity", 0.0)
         fl = s.get("flow", [0.0, 0.0])
         D = geodesic(D, C, self.ell, self.cp.get("aniso", 0.12), (fl[0], fl[1] + g))
+        D = self.wick(D, r0, r1, c0, c1)
         D[C >= BIG] = np.inf
         r = s.get("radius", math.inf)
         D[D > (r if math.isfinite(r) else 50.0)] = np.inf
@@ -270,6 +324,7 @@ class FieldBuilder:
             return None
         D = np.where(src, 0.0, np.inf)
         D = geodesic(D, self.cost, self.ell, self.cp.get("aniso", 0.12), (0.0, self.ink.get("gravity", 0.0) + tide.get("gravity", 0.0)))
+        D = self.wick(D)
         D[self.cost >= BIG] = np.inf
         D[D > 50.0] = np.inf
         return t0 + D / tide["speed"]
