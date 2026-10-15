@@ -106,10 +106,10 @@ def run(cfg):
     centre = to_frame(Ht, cfg, 0.5, 0.55)
     c0 = renderer.composite(frame, H, *sc.layers(0.0))
     c1 = renderer.composite(frame, H, *sc.layers(tl.end))
-    v0, v1 = sample(c0, centre).mean(), sample(c1, centre).mean()
+    ink_only = renderer.composite(frame, H, sc.layers(tl.end)[0], None)
+    v0, v1 = sample(c0, centre).mean(), sample(ink_only, centre).mean()
     check("paper untouched at t=0", v0 > 180, f"{v0:.0f}")
     check("paper black at end", v1 < 40, f"{v1:.0f}")
-    ink_only = renderer.composite(frame, H, sc.layers(tl.end)[0], None)
     desk = to_frame(Ht, cfg, -0.3, 0.5)
     dv = sample(ink_only, desk)
     check("desk unchanged by ink", np.abs(dv - np.array(DESK)).max() < 6, str(dv.round()))
@@ -261,6 +261,42 @@ def weed_checks(cfg, renderer, frame, H, Ht):
           f"{growing} growing, {done} complete")
     again = type(we)(cfg, tl, T, sc.ink_canvas, sc.over_canvas)
     check("weed growth is deterministic", np.array_equal(again.S, we.S) and np.array_equal(again.K, we.K))
+
+    # Inspect the weed overlay by itself: camera crops, props and the banner must
+    # not make a few local colonies look like coverage of the entire cloth.
+    canvas = sc.over_canvas
+    weed_layer = np.zeros_like(sc.over)
+    early_time, broad_time = s11 + 1.5, tl.at("B18")
+    again.draw(weed_layer, early_time)
+    early_alpha = weed_layer[canvas.inner][..., 3] > 64
+    again.draw(weed_layer, broad_time)
+    broad_alpha = weed_layer[canvas.inner][..., 3] > 64
+    eligible = np.ones(broad_alpha.shape, np.uint8)
+    for name in set(cfg["weeds"].get("avoid_regions", [])) | {cfg["ghost"]["region"]}:
+        polygon = np.rint(np.array(cfg["regions"][name]["polygon"]) * [canvas.w0, canvas.h0]).astype(np.int32)
+        cv2.fillPoly(eligible, [polygon], 0)
+    cloth = eligible > 0
+    early_coverage, broad_coverage = early_alpha[cloth].mean(), broad_alpha[cloth].mean()
+    check("weeds visibly cover the cloth before the banner", broad_coverage > 0.50, f"{broad_coverage:.2f} of unprotected cloth")
+    check("weed coverage grows with the arriving ink", 0 < early_coverage < 0.5 * broad_coverage,
+          f"{early_coverage:.2f} at {early_time:.1f}s -> {broad_coverage:.2f} at {broad_time:.1f}s")
+    cell_coverage = []
+    rows, cols = np.linspace(0, canvas.h0, 16, dtype=int), np.linspace(0, canvas.w0, 11, dtype=int)
+    for y0, y1 in zip(rows, rows[1:]):
+        for x0, x1 in zip(cols, cols[1:]):
+            cell = cloth[y0:y1, x0:x1]
+            if cell.mean() >= 0.5:
+                cell_coverage.append(broad_alpha[y0:y1, x0:x1][cell].mean())
+    occupied = np.array(cell_coverage) > 0.10
+    check("weeds spread across the whole tapestry grid", np.mean(occupied) > 0.90,
+          f"{sum(occupied)} of {len(occupied)} eligible cells, minimum density {min(cell_coverage):.2f}")
+    for name in ("garden", "battlement", "throne", "prince", "court", "players", "arras", "ophelia", "graveyard", "duel", "feast", "topple"):
+        panel = np.zeros_like(eligible)
+        polygon = np.rint(np.array(cfg["regions"][name]["polygon"]) * [canvas.w0, canvas.h0]).astype(np.int32)
+        cv2.fillPoly(panel, [polygon], 1)
+        coverage = broad_alpha[(panel > 0) & cloth].mean()
+        check(f"weeds reach the {name} panel before the banner", coverage > 0.20, f"{coverage:.2f} of panel")
+
     end = renderer.composite(frame, H, *sc.layers(tl.end))
     pts = [to_frame(Ht, cfg, x, y) for x in (-0.4, -0.2, 1.2, 1.4) for y in np.linspace(0.05, 0.95, 12)]
     pts = [p for p in pts if 0 <= p[0] < FRAME[0] and 0 <= p[1] < FRAME[1]]

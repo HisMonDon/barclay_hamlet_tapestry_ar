@@ -57,7 +57,7 @@
   "mix": {"olive": 0.4, "blackgreen": 0.35, "deepolive": 0.17, "rust": 0.08, "bud": 0.0, "petal": 0.0},
   "knot_colours": ["rust", "rust", "olive"],
   "light": [-0.6, -0.8],
-  "avoid_regions": ["banner"]
+  "avoid_regions": ["banner", "ghost"]
  },
  "banner": {"colour": "#c99b45", "hi": "#f2d488", "lo": "#7a5a22", "pitch": 0.014, "fill": 0.72, "warp": 0.06, "duty": 0.955, "jitter": 0.12, "twill": 0.37, "shimmer": 0.16, "shimmer_speed": 0.07},
  "splash": {"on": true, "stain": true, "energy": 1.0, "count": 1.0},
@@ -436,7 +436,7 @@
    "name": "Sprout",
    "duration": 3.0,
    "handheld": 0.8,
-   "desc": "First weeds sprout from the oldest ink, in the garden",
+   "desc": "Weeds sprout in the garden and spread across the tapestry wherever the ink has soaked in",
    "camera": [
     {"t": 0.2, "x": 0.2, "y": 0.18, "w": 0.6, "provisional": true, "f": 0.0, "fx": 0.19, "fy": 0.2},
     {"t": 2.9, "x": 0.19, "y": 0.19, "w": 0.52, "provisional": true, "f": 0.0, "fx": 0.19, "fy": 0.2}
@@ -453,7 +453,8 @@
      "length": 0.1,
      "seed": 1,
      "provisional": true
-    }
+    },
+    {"kind": "meadow", "t": 0.1, "region": "tapestry", "distribution": "even", "count": 640, "dir": -90, "direction_jitter": 65, "length": 0.16, "stagger": 3.0, "seed": 18, "provisional": true}
    ],
    "cues": [
     {

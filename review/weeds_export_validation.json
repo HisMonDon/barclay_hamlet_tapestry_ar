@@ -1,0 +1,12 @@
+{
+  "fps": 30.0,
+  "size": [
+    1920,
+    1080
+  ],
+  "frames": 2250,
+  "duration_s": 75.0,
+  "hold_audio_samples": 441000,
+  "hold_audio_nonzero": 0,
+  "encoded_hold_mean_absolute_pixel_difference": 1.0387474279835391
+}

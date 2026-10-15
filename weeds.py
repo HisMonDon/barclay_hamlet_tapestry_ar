@@ -100,6 +100,60 @@ class WeedEngine:
         self._soft_t = None
         self.drawn = -1.0
         self.bbox = None
+        self._init_redraw()
+
+    def _init_redraw(self):
+        """Cache completed stitches; moving tips redraw clean tiles instead of accumulating paint."""
+        c = self.canvas
+        # Align overlay tiles with shadow pixels so both layers have identical ownership.
+        self.tile = max(32, int(96 * self.cs) // 4 * 4)
+        self.tile_cols = math.ceil(c.w / self.tile)
+        self.tile_rows = math.ceil(c.h / self.tile)
+        self.complete = np.zeros((c.h, c.w, 4), np.uint8)
+        self.complete_shade = np.zeros_like(self.shade) if self.shade is not None else None
+        # A fixed completion order gives seeks and different playback frame rates
+        # the same overlapping stitch order, without redrawing the established canopy.
+        self.completion_hz = 30
+        self.stroke_bins = np.ceil(self.S[:, 5] * self.completion_hz).astype(np.int64)
+        self.knot_bins = np.ceil((self.K[:, 2] + 0.25) * self.completion_hz).astype(np.int64)
+        self.finish_bins = np.union1d(self.stroke_bins, self.knot_bins)
+        so, ko = np.argsort(self.stroke_bins, kind="stable"), np.argsort(self.knot_bins, kind="stable")
+        self.bin_strokes = np.split(so, np.searchsorted(self.stroke_bins[so], self.finish_bins[1:]))
+        self.bin_knots = np.split(ko, np.searchsorted(self.knot_bins[ko], self.finish_bins[1:]))
+        self.finished_bins = 0
+        self.active_tiles = np.empty(0, np.int64)
+        off = max(abs(v) for v in self.soft_off)
+        w = self.S[:, 6] * self.cs
+        # Include line caps, fixed-point AA and quarter-resolution shadow AA.
+        m = np.maximum((1.3 + off) * w + 6.0, off * w + 12.0)
+        self.stroke_tiles = self._bounds_tiles(np.stack([
+            self.P[:, [0, 2]].min(axis=1) - m, self.P[:, [1, 3]].min(axis=1) - m,
+            self.P[:, [0, 2]].max(axis=1) + m, self.P[:, [1, 3]].max(axis=1) + m,
+        ], axis=1))
+        r = np.maximum(1.0, self.K[:, 3] * self.cs)
+        m = max(3.0, off + 1.25) * r + 12.0
+        self.knot_tiles = self._bounds_tiles(np.stack([
+            self.KP[:, 0] - m, self.KP[:, 1] - m,
+            self.KP[:, 0] + m, self.KP[:, 1] + m,
+        ], axis=1))
+
+    def _bounds_tiles(self, bounds):
+        c, tile = self.canvas, self.tile
+        lo = np.floor(np.maximum(bounds[:, :2], 0) / tile).astype(np.int32)
+        hi = np.floor(np.minimum(bounds[:, 2:], [c.w - 1, c.h - 1]) / tile).astype(np.int32)
+        # Empty off-canvas shapes must not become negative array indices.
+        size = np.maximum(0, hi - lo + 1)
+        return np.stack([lo[:, 0], lo[:, 1], size[:, 0], size[:, 1]], axis=1)
+
+    def _tile_members(self, shapes):
+        count = shapes[:, 2] * shapes[:, 3]
+        rows = np.repeat(np.arange(len(shapes)), count)
+        starts = np.cumsum(count) - count
+        offset = np.arange(len(rows)) - np.repeat(starts, count)
+        width = shapes[rows, 2]
+        tiles = ((shapes[rows, 1] + offset // width) * self.tile_cols
+                 + shapes[rows, 0] + offset % width)
+        return rows, tiles
 
     def _palettes(self):
         body = np.array(self.body, np.float64)
@@ -170,19 +224,35 @@ class WeedEngine:
         poly = None
         if "region" in spec:
             poly = np.array(self.cfg["regions"][spec["region"]]["polygon"], np.float64)
+        # One root per jittered cell keeps large colonies continuous instead of
+        # leaving the empty patches produced by independent random sampling.
+        cells = None
+        if spec.get("distribution") == "even":
+            bounds = (poly.min(axis=0), poly.max(axis=0)) if poly is not None else (np.zeros(2), np.ones(2))
+            lo, hi = bounds
+            aspect = (hi[1] - lo[1]) * self.th / max(1e-6, (hi[0] - lo[0]) * self.tw)
+            nx = max(1, int(round(math.sqrt(n / max(1e-6, aspect)))))
+            ny = max(1, int(math.ceil(n / nx)))
+            cells = [(col, row) for row in range(ny) for col in range(nx)]
+            rng.shuffle(cells)
         base = math.radians(spec.get("dir", -90))
         while len(out) < n and tries < n * 80:
             tries += 1
-            if poly is not None:
+            if cells is not None:
+                if not cells:
+                    break
+                col, row = cells.pop()
+                u, v = lo + (hi - lo) * ((np.array([col, row]) + rng.uniform(0.15, 0.85, 2)) / [nx, ny])
+            elif poly is not None:
                 u = rng.uniform(poly[:, 0].min(), poly[:, 0].max())
                 v = rng.uniform(poly[:, 1].min(), poly[:, 1].max())
-                if cv2.pointPolygonTest(poly.astype(np.float32), (float(u), float(v)), False) < 0:
-                    continue
             else:
                 r = spec.get("spread", 0.05) * math.sqrt(rng.random())
                 th = rng.uniform(0, 2 * math.pi)
                 u = spec["x"] + r * math.cos(th)
                 v = spec["y"] + r * math.sin(th) / (self.th / self.tw)
+            if poly is not None and cv2.pointPolygonTest(poly.astype(np.float32), (float(u), float(v)), False) < 0:
+                continue
             x, y = u * self.tw, v * self.th
             T = self.arrival(x, y)
             if not math.isfinite(T):
@@ -203,13 +273,44 @@ class WeedEngine:
         k = KINDS.get(kind, KINDS["sprout"])
         spill = {"t_spill": t0 if kind == "spill" else None, "in_banner": kind == "gaps"}
         L = spec.get("length", 0.1) * self.tw
+        first_stroke, first_knot = len(b.s), len(b.k)
         for x, y, a, tr in self._roots(spec, t0, rng):
             self.roots.append((x, y, tr, kind))
+            jitter = spec.get("direction_jitter", 0.0)
+            if jitter:
+                a += math.radians(rng.uniform(-jitter, jitter))
             a0 = a + math.radians(rng.normal(0.0, k["spread"]))
             ci = self._pick(rng)
-            target = a if kind in ("creeper", "spill") else math.radians(spec.get("dir", -90))
+            target = a
             self._stem(b, rng, (x, y), a0, target, L * rng.uniform(0.6, 1.15), 0, tr,
                        self.width * rng.uniform(0.9, 1.15), ci, k, spill, self.speed * k["speed"] * rng.uniform(0.85, 1.15))
+        if kind != "spill":
+            self._clip_colony(b, first_stroke, first_knot)
+
+    def _clip_colony(self, b, first_stroke, first_knot):
+        """Leaves, loops and slanted stitches must respect the cloth edge too."""
+        clipped = []
+        for stroke in b.s[first_stroke:]:
+            x0, y0, x1, y1, ta, tb, width, colour, kind = stroke
+            if 0 <= x0 <= self.tw and 0 <= x1 <= self.tw and 0 <= y0 <= self.th and 0 <= y1 <= self.th:
+                clipped.append(stroke)
+                continue
+            dx, dy = x1 - x0, y1 - y0
+            enter, leave = 0.0, 1.0
+            for p, q in ((-dx, x0), (dx, self.tw - x0), (-dy, y0), (dy, self.th - y0)):
+                if abs(p) < 1e-12:
+                    if q < 0:
+                        leave = -1.0
+                        break
+                elif p < 0:
+                    enter = max(enter, q / p)
+                else:
+                    leave = min(leave, q / p)
+            if enter < leave:
+                clipped.append((x0 + enter * dx, y0 + enter * dy, x0 + leave * dx, y0 + leave * dy,
+                                ta + enter * (tb - ta), ta + leave * (tb - ta), width, colour, kind))
+        b.s[first_stroke:] = clipped
+        b.k[first_knot:] = [k for k in b.k[first_knot:] if k[3] <= k[0] <= self.tw - k[3] and k[3] <= k[1] <= self.th - k[3]]
 
     def _stem(self, b, rng, p, a, target, L, depth, ts, w, ci, k, spill, v):
         step = self.stitch * 0.5
@@ -421,6 +522,11 @@ class WeedEngine:
         self.sdirty = None
         self.drawn = -1.0
         self._soft_t = None
+        self.complete[:] = 0
+        if self.complete_shade is not None:
+            self.complete_shade[:] = 0
+        self.finished_bins = 0
+        self.active_tiles = np.empty(0, np.int64)
 
     def _grow(self, x0, y0, x1, y1):
         c = self.canvas
@@ -433,24 +539,67 @@ class WeedEngine:
             self.bbox = (min(a[0], x0), min(a[1], y0), max(a[2], x1), max(a[3], y1))
 
     def draw(self, over, t):
+        if t == self.drawn:
+            return self.bbox is not None
         if t < self.drawn:
             self.clear(over)
         if t < self.first:
             self.drawn = t
             return self.bbox is not None
-        prev = self.drawn
-        S, P = self.S, self.P
+        S = self.S
         hi = np.searchsorted(S[:, 4], t, side="right")
-        sel = np.nonzero(S[:hi, 5] > prev)[0]
-        if len(sel):
-            self._draw_strokes(over, sel, t)
         K = self.K
         khi = np.searchsorted(K[:, 2], t, side="right")
-        ksel = np.nonzero(K[:khi, 2] + 0.25 > prev)[0]
+        bucket = math.floor(t * self.completion_hz + 1e-9)
+        sel = np.nonzero(self.stroke_bins[:hi] > bucket)[0]
+        ksel = np.nonzero(self.knot_bins[:khi] > bucket)[0]
+        end = np.searchsorted(self.finish_bins, bucket, side="right")
+        completed = []
+        shade, pending = self.shade, self.sdirty
+        self.shade = self.complete_shade
+        try:
+            for k in range(self.finished_bins, end):
+                ss, kk = self.bin_strokes[k], self.bin_knots[k]
+                if len(ss):
+                    self._draw_strokes(self.complete, ss, t)
+                    completed.append(self.stroke_tiles[ss])
+                if len(kk):
+                    self._draw_knots(self.complete, kk, t)
+                    completed.append(self.knot_tiles[kk])
+        finally:
+            self.shade, self.sdirty = shade, pending
+        self.finished_bins = end
+        _, tiles = self._tile_members(np.concatenate([self.stroke_tiles[sel], self.knot_tiles[ksel]]))
+        active = np.unique(tiles)
+        dirty = np.union1d(self.active_tiles, active)
+        if completed:
+            _, tiles = self._tile_members(np.concatenate(completed))
+            dirty = np.union1d(dirty, tiles)
+        if len(dirty):
+            self._restore_tiles(over, dirty)
+        if len(sel):
+            self._draw_strokes(over, sel, t)
         if len(ksel):
             self._draw_knots(over, ksel, t)
+        self.active_tiles = active
         self.drawn = t
         return self.bbox is not None
+
+    def _restore_tiles(self, over, dirty):
+        """Remove last frame's growing tips and restore the immutable stitch backing."""
+        c, tile = self.canvas, self.tile
+        for k in dirty:
+            row, col = divmod(int(k), self.tile_cols)
+            x0, y0 = col * tile, row * tile
+            x1, y1 = min(c.w, x0 + tile), min(c.h, y0 + tile)
+            box = (slice(y0, y1), slice(x0, x1))
+            over[box] = self.complete[box]
+            if self.shade is not None:
+                sx1 = self.shade.shape[1] if x1 == c.w else x1 // self.sk
+                sy1 = self.shade.shape[0] if y1 == c.h else y1 // self.sk
+                sb = (slice(y0 // self.sk, sy1), slice(x0 // self.sk, sx1))
+                self.shade[sb] = self.complete_shade[sb]
+                self._dirty((sb[1].start, sb[0].start, sb[1].stop, sb[0].stop))
 
     def _shade_lines(self, segs, th):
         """Draw shadow segments (overlay pixels) into the quarter-resolution shadow buffer."""

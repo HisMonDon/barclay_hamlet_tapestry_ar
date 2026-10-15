@@ -285,6 +285,8 @@ class Crown(Prop):
         self.tD = s.get("settle_s", 1.2)
         self.yaw = math.radians(s.get("yaw", 52))
         self.pitch = math.radians(s.get("view_pitch", 16))
+        cp, sp = math.cos(self.pitch), math.sin(self.pitch)
+        self.view = np.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]])
         n = 60
         a = np.linspace(0, 2 * np.pi, n, endpoint=False)
         k = s.get("points", 5)
@@ -320,9 +322,9 @@ class Crown(Prop):
         R = self.R
         pivot = self.at + np.array([self.d * R, 0.0])
         M = self._M(self.th_tip, 0.0, 0.0)
-        c = pivot + (M @ ((self.ref - self.piv) * R))[:2]
+        c = pivot + (self.view @ M @ ((self.ref - self.piv) * R))[:2]
         M2 = self._M(self.th_tip - 0.01, 0.0, 0.0)
-        c2 = pivot + (M2 @ ((self.ref - self.piv) * R))[:2]
+        c2 = pivot + (self.view @ M2 @ ((self.ref - self.piv) * R))[:2]
         v = (c - c2) / (0.01 / self.w0)
         return c, v * 0.6
 
@@ -356,7 +358,7 @@ class Crown(Prop):
             return self._M(math.radians(90) + rock, self.yaw, 0.6 + dist / R), pos, self.ref
         tau -= self.tC
         p = min(1.0, tau / self.tD)
-        wob = math.radians(10) * math.exp(-3.5 * p) * math.cos(p * 16)
+        wob = math.radians(10) * math.exp(-3.5 * p) * math.sin(p * 16) * (1.0 - ease(p))
         lean = math.radians(90) + math.radians(9) * ease(p)
         pos = self.land + np.array([self.d * self.roll, R * 0.06 * ease(p)])
         return self._M(lean + wob, self.yaw + wob * 0.4, 0.6 + self.roll / R), pos, self.ref
@@ -369,8 +371,7 @@ class Crown(Prop):
             return self.settled
         M, pos, ref = self.pose(t)
         R = self.R
-        cp, sp_ = math.cos(self.pitch), math.sin(self.pitch)
-        V = np.array([[1, 0, 0], [0, cp, -sp_], [0, sp_, cp]])
+        V = self.view
         anchor = pos
 
         def world(local):

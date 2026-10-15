@@ -2,6 +2,14 @@
 
 Drop these files over the project. Every new effect has a config switch, and old beat files still load.
 
+## Whole-tapestry overgrowth
+
+- `beats_v2.json` now starts a dense, evenly distributed colony in B11. Roots wait for soaked ink, so the overgrowth follows the corruption and fills the tapestry by the pullback. Varied directions connect the plants across the cloth; the ghost and banner remain protected.
+- `weeds.py` supports `distribution: "even"` and `direction_jitter` for large colonies.
+- Finished stitches are cached in a fixed order; growing tips and their shadows redraw cleanly, so playback, pause and seeking agree without accumulating old highlights. Non-spill leaf and stitch geometry stays inside the cloth.
+- `props.py` fixes crown position jumps when the crown leaves its pivot and finishes rolling.
+- `test_pipeline.py` checks broad coverage and every story panel. `test_animation.py` checks crown motion at each phase boundary, weed playback/seek parity, shadows and edge clipping.
+
 ## New files
 - `lens.py`: depth of field around a focus target, rack-focus softening on camera moves, highlight bloom.
 - `particles.py`: splash droplets with satellite stains (`Splash`), dust motes in the candlelight (`Motes`).
