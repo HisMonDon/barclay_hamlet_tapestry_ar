@@ -38,6 +38,51 @@ The controls window (`--controls`, or C) is a separate window for the laptop scr
 
 The beat flagged `"hold": true` (S16 in the reveal show, B21 in the earlier show) freezes the image; audio falls silent from the beat flagged `"silence": true` (the S14 banner), or from `sound.silence_from`. The image remains on screen at the end until a control is used. Operator text is hidden unless debug is enabled.
 
+## Browser UI: Virtual Explore and Scan Tapestry
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe server.py --open
+```
+
+Then use **http://localhost:8000** in Chrome, Edge or Firefox. Always use `localhost` on the computer, not its IP address: browsers only allow webcams on secure pages, and `http://localhost` counts as one. The show starts paused at 0:00; press Play. Stop the server with Ctrl+C.
+
+| Option | Effect |
+| --- | --- |
+| `--port 8001` | Desktop UI port (default 8000, bound to this computer only) |
+| `--phone-port 8444` | HTTPS port for the phone camera page (default 8443) |
+| `--no-phone` | Do not open the phone listener on the network |
+| `--quality render` | Sharper renderer preset; slower on most laptops |
+| `--beats beats_tapestry.json` | Run another beat file |
+| `--verbose` | Log every request |
+
+`server.py` loads the same `Renderer`, `Timeline`, `Soundtrack` and `BoardTracker` as `app.py` (see `web_engine.py`). Every image is a pure function of the timeline position, so the browser owns the clock: while the soundtrack plays, the Web Audio clock is the show clock, and each frame is requested for the moment being heard (plus the measured render time). Play, pause, seeking, previous/next scene (the same beat steps as `Timeline.step`) and restart therefore keep picture, sound and scrubber together. The silence from S14 is in the soundtrack itself, and from the hold (S16) the picture freezes: the 3D texture stops changing and the scanned composite stops updating, camera included. Playback stops at the end; Play then starts again from 0:00.
+
+**Virtual Explore** needs no camera. The engine composites the show onto a flat image of the whole board (drawing, white board, the four markers at their real positions and a strip of desk for the S15 spill) and three.js lays it on a board on a desk, lit by a lamp and a candle. Drag to orbit, right-drag, Shift-drag or two fingers to pan, scroll or pinch to zoom; with the view focused, arrow keys orbit and + / − zoom. **Reset view** flies back to the overview. **Follow animation** rides the show's own virtual camera (the Serpent follow, zooms and handheld motion from `Timeline.camera_pose`); moving the view turns it off. Navigation works whether the show is playing or paused, and a paused frame is re-rendered at higher detail for close inspection. The candle and dust follow show time, so they rest when paused and in the hold.
+
+**Scan Tapestry** sends camera frames to the engine, which finds markers 0-3 and returns the composite. The show waits for the first marker lock (Play can be pressed early; it starts when the markers are found). After that, covered markers show *Tracking lost* and the last good position is held while the show continues, as in `app.py`. **Follow animation** here is `app.py`'s virtual camera (V); off shows the whole camera frame. **Tracking overlay** draws the operator debug view (D). Status covers connecting, searching for markers (with the markers seen), ready, tracking lost, camera reconnecting, camera unavailable and permission denied. Leaving Scan mode releases the camera (the phone turns its camera off too) and coming back reopens the same source and waits for a fresh lock. Use Fullscreen (Shift+F) on the projector; the controls fade while the show plays and return when the mouse moves.
+
+Camera sources:
+
+- **Webcam**: any camera the browser can see, including phone-as-webcam apps (Camo, DroidCam, Windows Phone Link, Continuity Camera). 1280×720 is smoother; 1920×1080 gives sharper close-ups. If permission was denied, click the camera icon in the address bar, allow it, and press Try again; on Windows also check Settings → Privacy & security → Camera.
+- **Phone**: the phone's browser sends its camera to the computer over Wi-Fi. No app needed.
+- **Stream URL**: the server opens it with `app.py`'s reconnecting camera, for example IP Webcam `http://PHONE-IP:8080/video`, DroidCam `http://PHONE-IP:4747/video`, or an `rtsp://` camera. A number such as `0` opens that camera through OpenCV, like `app.py --camera 0`.
+
+### Connecting a phone
+
+1. Put the phone and the computer on the same Wi-Fi (not a guest network that isolates devices).
+2. Start `server.py`. The first time, Windows may ask whether Python can use the network: allow **Private networks**.
+3. In **Scan Tapestry**, choose **Phone** in the setup panel. Scan the QR code with the phone's camera app, or type the `https://…:8443/phone?k=…` link that is shown there and printed in the server window.
+4. The phone warns that the connection is not private, because the certificate is self-signed for this computer (it is created in `.cache/tls/`). Android Chrome: **Advanced → Proceed**. iPhone Safari: **Show Details → visit this website**, then confirm.
+5. Tap **Start camera** on the phone and allow access. Press **Connect phone** on the computer.
+6. Stand the phone on a holder above the board, landscape for the widest picture, with all four markers in view. Keep the phone page open and the screen on.
+
+The `k=` key in the link changes every time the server starts, so scan the QR code again after a restart. If the phone cannot load the page, check that both devices are on the same network, that the address shown matches the computer's Wi-Fi address (pick another one from the list if there are several), and that a firewall is not blocking port 8443. An IP-camera app with **Stream URL** is the fallback.
+
+### Positioning the artwork
+
+Print `markers.pdf` at 100% and place markers 0 (top-left), 1 (top-right), 2 (bottom-right) and 3 (bottom-left) as described above. Mount the camera above the board looking down, with the board filling about two-thirds of the picture; deeper zooms need the paper at least about 580 px wide in a 1080p feed. Light the board evenly and avoid glare on the markers. At least three markers must be visible to lock on.
+
 ## Render the backup and review it
 
 ```powershell
@@ -161,9 +206,10 @@ Place original or licensed PCM WAV recordings in `assets/sfx/` named `crackle.wa
 ```powershell
 .\.venv\Scripts\python.exe test_pipeline.py
 .\.venv\Scripts\python.exe -m unittest test_animation -v
+.\.venv\Scripts\python.exe -m unittest test_web -v
 .\.venv\Scripts\python.exe benchmark.py --frames 90
 ```
 
-Tests cover both paper sizes, tracking and freeze on loss, ghost protection, story order, permanent ink, banner gaps and row reveal, deterministic embroidery, coverage across every story panel, soaked roots, desk spill, animation continuity, audio timing and silence, editor round trips, backup seeking and camera reconnect. Images and benchmark JSON are written under `test_out/`. `REVIEW.md` records the visual reviews; final sheets are under `review/`.
+Tests cover both paper sizes, tracking and freeze on loss, ghost protection, story order, permanent ink, banner gaps and row reveal, deterministic embroidery, coverage across every story panel, soaked roots, desk spill, animation continuity, audio timing and silence, editor round trips, backup seeking and camera reconnect. `test_web` covers the browser back end: the soundtrack's length and silence, the virtual board texture as a pure function of t and its frozen hold, marker lock and loss on uploaded frames, the phone relay, the camera sources, and the server's localhost-only, pairing-key and TLS rules. Images and benchmark JSON are written under `test_out/`. `REVIEW.md` records the visual reviews; final sheets are under `review/`.
 
 Performance is machine- and camera-dependent. Benchmarking uses a synthetic 1080p input and includes marker tracking and the rendering path, but excludes physical camera driver latency, GUI presentation and real audio hardware. Occasional frames can exceed 33 ms even when segment averages exceed 30 fps. A frozen homography cannot compensate for a board being moved while its markers are hidden. Camera drivers that block on a read cannot block the projector loop, but may delay reconnection. Keep a rehearsed backup MP4 and its WAV beside it, test B before class, and use the actual classroom laptop/projector for the final check.

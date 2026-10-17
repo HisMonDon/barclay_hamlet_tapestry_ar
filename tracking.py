@@ -34,6 +34,7 @@ class BoardTracker:
         self.quad = None
         self.H = None
         self.seen = ()
+        self.found = False
 
     def _detect(self, gray, scale):
         img = gray if scale == 1.0 else cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
@@ -78,6 +79,7 @@ class BoardTracker:
 
     def update(self, frame):
         quad = self._measure(frame)
+        self.found = quad is not None
         if quad is None:
             return self.H
         if self.quad is None or float(np.abs(quad - self.quad).max()) > self.snap_px:

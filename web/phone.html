@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Phone camera — Hamlet’s Tapestry</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/phone.css">
+  <script type="module" src="/static/phone.js"></script>
+</head>
+<body>
+  <main class="phone">
+    <header>
+      <p class="kicker">Hamlet’s Tapestry</p>
+      <h1>Phone camera</h1>
+    </header>
+
+    <div class="preview">
+      <video id="preview" muted playsinline autoplay aria-label="Camera preview"></video>
+      <div class="frame-guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <p class="preview-empty" id="preview-empty">The camera preview appears here.</p>
+    </div>
+
+    <p class="status" id="status" role="status" aria-live="polite" data-tone="">Connecting to the computer…</p>
+
+    <div class="actions">
+      <button class="btn primary" id="start">Start camera</button>
+      <button class="btn" id="flip" hidden>Switch camera</button>
+      <button class="btn ghost" id="stop" hidden>Stop</button>
+    </div>
+
+    <ul class="tips">
+      <li>Keep this page open and the phone awake while the show runs.</li>
+      <li>Hold the phone above the board, or prop it on a stand, so all four markers are in view.</li>
+      <li>Landscape gives the widest picture for a projector.</li>
+    </ul>
+  </main>
+</body>
+</html>
