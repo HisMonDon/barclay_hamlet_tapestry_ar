@@ -5,6 +5,7 @@ import props as propmod
 from banner import Weave
 from config import ROOT, resolve
 from ink import Canvas, InkEngine
+from reveal import load_art
 from weeds import WeedEngine
 
 
@@ -26,6 +27,7 @@ class Scene:
         self.tw, self.th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
         margin = cfg.get("overlay", {}).get("margin", 0.0)
         self.scan = load_scan(cfg) if scan is None else scan
+        self.reveal_art = load_art(cfg)
         cache = cfg.get("cache_dir")
         cache = (ROOT / cache) if cache else None
         self.over_canvas = Canvas(self.tw, self.th, cfg.get("overlay", {}).get("scale", 1.0), margin)

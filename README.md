@@ -21,7 +21,8 @@ Pick portrait `tabloid` or `letter` in `config.json` and regenerate `markers.pdf
 | --- | --- |
 | Space | Pause / resume with synchronized sound |
 | Left / Right | Step one beat backward / forward |
-| R | Restart and play |
+| R | Reveal check: show the whole corrupt layer on the paper |
+| Shift+R / Home | Restart and play |
 | V | Virtual camera / full composited camera frame |
 | D | Operator debug display, including camera/audio status |
 | C | Open / close the operator controls window |
@@ -69,6 +70,18 @@ This writes a 1920x1080, 30 fps, 75-second MP4, a matching WAV and a PNG contact
 - **Banner.** A slow sheen slides across the couched gold (`banner.shimmer`), beneath the glint that falters in B19.
 
 Each preset has an `fx` block in `config.json`. `live` turns off the costlier passes (glow, stitch detail, radial depth of field, bloom) and keeps rack-focus softening only; `render` turns everything on. Layers are warped only over the screen area they cover, which keeps the live preset at roughly its previous frame time on synthetic input. Measure on the classroom laptop with `benchmark.py` and switch individual `fx` flags off if needed.
+
+## Reveal assets (print mode)
+
+`assets/clean_hi.png` is the image that gets printed; `assets/corrupt_hi.png` is the corrupted version of the same composition. Align them once, and again whenever either image changes:
+
+```powershell
+.\.venv\Scripts\python.exe -m tools.align_layers
+```
+
+The tool fits a SIFT + RANSAC homography from the corrupt art to the clean art, refines each panel with ECC, and keeps a panel's refinement only when it lowers that panel's measured line-structure residual. It writes `assets/corrupt_aligned.png`, `assets/clean_ref.png`, `assets/panels.json` (seeded from the beat file's regions on the first run; edit it or pass `--reseed`) and `assets/assets.hash`, plus `review/align_check.jpg` (checkerboard, aligned edges, unaligned edges) and `review/align_report.json`. Figures that were redrawn in the corrupt art read as a higher residual; check those panels in the review image.
+
+Print `clean_ref.png` at 100% scale, centred, at the size the tool reports, and copy its `print_margin_mm` line into `config.json`. Markers still sit `gap_mm` beyond the sheet edges. Press **R** with the board tracked to show the whole corrupt layer on the paper as an alignment check; `render.py --reveal` renders the same view.
 
 ## Remap the real drawing
 

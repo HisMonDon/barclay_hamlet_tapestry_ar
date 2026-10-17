@@ -5,7 +5,8 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 CONFIG = ROOT / "config.json"
 MM_PER_IN = 25.4
-SECTIONS = ("quality", "atmosphere", "lens", "motes", "sound", "camera_input", "backup_video", "cache_dir", "debug", "editor", "tracking", "performance")
+SECTIONS = ("quality", "atmosphere", "lens", "motes", "sound", "camera_input", "backup_video", "cache_dir", "debug", "editor", "tracking", "performance",
+            "source_mode", "assets")
 FX = {"sheen": True, "sheen_glow": True, "weed_shadow": True, "stitch_detail": True, "dof": True, "dof_levels": 2,
       "dof_radial": True, "bloom": True, "motes": True, "splash": True}
 
@@ -20,9 +21,13 @@ def board(path=CONFIG, paper=None):
     if paper:
         c["paper"] = paper
     w, h = sorted(round(v * MM_PER_IN, 2) for v in c["papers_in"][c["paper"]])
+    ml, mt, mr, mb = c.get("print_margin_mm", [0, 0, 0, 0])
+    w, h = round(w - ml - mr, 2), round(h - mt - mb, 2)
+    g = c["gap_mm"]
     tw = int(c["tapestry_width"])
     return {
-        "board": {"paper": c["paper"], "drawing_mm": [w, h], "marker_mm": c["marker_mm"], "gap_mm": c["gap_mm"]},
+        "board": {"paper": c["paper"], "drawing_mm": [w, h], "marker_mm": c["marker_mm"], "gap_mm": g,
+                  "gaps_mm": [g + ml, g + mt, g + mr, g + mb]},
         "tapestry": {"width": tw, "height": int(round(tw * h / w))},
         "overlay": {"margin": c.get("overlay_margin", 0.5)},
     }

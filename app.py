@@ -18,6 +18,7 @@ from controls import Controls, Rebuild
 KEYS_LEFT = {2424832, 65361, 63234, 81}
 KEYS_RIGHT = {2555904, 65363, 63235, 83}
 KEYS_QUIT = {27, ord("q"), ord("Q")}
+KEYS_HOME = {2359296, 65360, 63273}
 WINDOW = "Tapestry"
 
 
@@ -149,6 +150,7 @@ def main():
             if fresh is not None:
                 fresh.tracker.H, fresh.tracker.quad = renderer.tracker.H, renderer.tracker.quad
                 fresh.track_count = renderer.track_count
+                fresh.comp.force_reveal = renderer.comp.force_reveal
                 if fresh.cfg["ink"]["tone"] != controls.tone:
                     fresh.scene.set_tone(controls.tone)
                 renderer, quality = fresh, rebuild.name
@@ -168,6 +170,7 @@ def main():
                 if audio.soundtrack.warnings:
                     lines.append(audio.soundtrack.warnings[-1])
                 lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s  {controls.tone}  {quality}"
+                             + ("  REVEAL CHECK" if renderer.comp.force_reveal else "")
                              + ("  building " + rebuild.name if rebuild.busy else "") + ("  " + notice if notice else ""))
             if lines:
                 hud(out, lines)
@@ -213,9 +216,14 @@ def main():
             elif key in KEYS_RIGHT:
                 t = timeline.step(t, +1)
                 force = True
-            elif key in (ord("r"), ord("R")):
+            elif key == ord("R") or key in KEYS_HOME:
                 t, playing = 0.0, True
                 force = True
+            elif key == ord("r"):
+                renderer.comp.force_reveal = not renderer.comp.force_reveal
+                final_frame = None
+                if renderer.comp.reveal_art is None:
+                    notice = "Reveal art missing: run python -m tools.align_layers"
             elif key in (ord("v"), ord("V")):
                 virtual = not virtual
                 final_frame = None

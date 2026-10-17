@@ -212,6 +212,6 @@ class Controls:
         for n in list(notes) + ([self.status] if self.status else []):
             self._text(img, n, (16, y), 0.45, ACCENT)
             y += 22
-        self._text(img, "Space play   Left/Right beat   R restart   T tone   P quality   C close panel   V camera view   D debug",
+        self._text(img, "Space play   Left/Right beat   Shift+R restart   R reveal check   T tone   P quality   C close panel   V camera view   D debug",
                    (16, self.H - 14), 0.4, DIM)
         cv2.imshow(WINDOW, img)

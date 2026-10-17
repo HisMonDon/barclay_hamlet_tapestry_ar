@@ -7,9 +7,10 @@ MARKER_IDS = (0, 1, 2, 3)
 def marker_layout(cfg):
     tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
     dw, dh = cfg["board"]["drawing_mm"]
-    m, g = cfg["board"]["marker_mm"], cfg["board"]["gap_mm"]
+    m = cfg["board"]["marker_mm"]
+    gl, gt, gr, gb = cfg["board"].get("gaps_mm", [cfg["board"]["gap_mm"]] * 4)
     sx, sy = tw / dw, th / dh
-    origins = {0: (-g - m, -g - m), 1: (dw + g, -g - m), 2: (dw + g, dh + g), 3: (-g - m, dh + g)}
+    origins = {0: (-gl - m, -gt - m), 1: (dw + gr, -gt - m), 2: (dw + gr, dh + gb), 3: (-gl - m, dh + gb)}
     layout = {}
     for i, (ox, oy) in origins.items():
         sq = [(ox, oy), (ox + m, oy), (ox + m, oy + m), (ox, oy + m)]

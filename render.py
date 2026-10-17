@@ -199,6 +199,7 @@ def main():
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--tone", default=None, help="ink tone name from the beat file (e.g. 'Iron gall', 'Lamp black', 'Oxblood')")
     ap.add_argument("--no-lens", action="store_true", help="disable depth of field, rack focus, bloom and dust motes")
+    ap.add_argument("--reveal", action="store_true", help="alignment check: show the whole corrupt layer on the paper")
     args = ap.parse_args()
 
     cfg = load(args.beats or default_beats(args.config), args.config, quality=args.quality)
@@ -217,6 +218,7 @@ def main():
         for k in cfg.get("atmosphere", {}).values():
             k["on"] = False
     renderer = Renderer(cfg)
+    renderer.comp.force_reveal = args.reveal
     tl = renderer.timeline
     size = tuple(int(v) for v in args.size.lower().split("x"))
     src = Source(renderer, args.mode, args.source, size)

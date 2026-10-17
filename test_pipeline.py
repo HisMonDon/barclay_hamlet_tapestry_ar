@@ -531,6 +531,103 @@ def system_checks(cfg):
         camera.close()
 
 
+def alignment_checks(cfg):
+    from fields import fractal_noise, raster
+    from tools.align_layers import align, seed_panels
+    clean = cv2.imread(str(ROOT / "assets" / "hamlet_tapestry.png"))
+    h, w = clean.shape[:2]
+    panels = seed_panels(cfg["regions"], clean, clean)["panels"]
+    rng = np.random.default_rng(4)
+    drift = {x["id"]: rng.uniform(2.0, 3.0, 2) * rng.choice([-1.0, 1.0], 2) for x in panels}
+    drifted = clean.copy()
+    for x in panels:
+        dx, dy = drift[x["id"]]
+        moved = cv2.warpAffine(clean, np.float64([[1, 0, dx], [0, 1, dy]]), (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        inside = raster(x["polygon"], w, h) > 0.5
+        drifted[inside] = moved[inside]
+    hsv = cv2.cvtColor(drifted, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[..., 1] *= 0.55
+    hsv[..., 2] *= 0.8
+    rot = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
+    rot = cv2.addWeighted(rot, 0.85, np.full_like(rot, (40, 90, 30)), 0.15, 0)
+    rot[fractal_noise(w, h, 12, 3, 0.5, 5) > 0.55] //= 2
+    c, s = 1.012 * np.cos(np.radians(0.5)), 1.012 * np.sin(np.radians(0.5))
+    G = np.array([[c, -s, 9.0], [s, c, -6.0], [0, 0, 1]])
+    corrupt = cv2.warpPerspective(rot, G, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    aligned, report, maps = align(clean, corrupt, panels)
+    Gi = np.linalg.inv(G)
+    refined, coarse = [], []
+    for x in panels:
+        x0, y0, x1, y1 = np.array(x["rect"]) * [w, h, w, h]
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        pts = np.float64([[cx, cy], [cx - (cx - x0) / 2, cy - (cy - y0) / 2], [cx + (x1 - cx) / 2, cy - (cy - y0) / 2],
+                          [cx + (x1 - cx) / 2, cy + (y1 - cy) / 2], [cx - (cx - x0) / 2, cy + (y1 - cy) / 2]])
+        miss = lambda M: cv2.perspectiveTransform(cv2.perspectiveTransform(pts[None], M), Gi)[0] - drift[x["id"]] - pts
+        refined.append(miss(maps[x["id"]]))
+        coarse.append(miss(maps["global"]))
+    rms = lambda e: float(np.sqrt(np.mean(np.sum(np.concatenate(e) ** 2, axis=1))))
+    check("alignment recovers per-panel drift under 1 px", rms(refined) < 1.0,
+          f"RMS {rms(refined):.2f} px (global only {rms(coarse):.2f} px), {sum(x['refined'] for x in report['panels'])}/{len(panels)} panels refined")
+    check("aligned corrupt art keeps the clean art's size", aligned.shape == clean.shape)
+    big = cv2.copyMakeBorder(cv2.resize(clean, None, fx=1.25, fy=1.25, interpolation=cv2.INTER_CUBIC), 30, 30, 10, 10, cv2.BORDER_REPLICATE)
+    moved = seed_panels(cfg["regions"], clean, big)["panels"]
+    bh, bw = big.shape[:2]
+    expect = [np.array(x["rect"]) * [w, h, w, h] * 1.25 + [10, 30, 10, 30] for x in panels]
+    got = [np.array(x["rect"]) * [bw, bh, bw, bh] for x in moved]
+    err = max(float(np.abs(expect[x] - got[x]).max()) for x in range(len(panels)))
+    check("panel regions transfer onto rescaled art", err < 1.5, f"max rect error {err:.2f} px")
+
+
+def margin_checks():
+    import json
+    from config import board, read
+    raw = read(ROOT / "config.json")
+    raw["print_margin_mm"] = [6.35, 9.79, 6.35, 9.79]
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "config.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        cfg = board(path)
+    sw, sh = sorted(round(x * 25.4, 2) for x in raw["papers_in"][raw["paper"]])
+    ml, mt, mr, mb = raw["print_margin_mm"]
+    dw, dh = cfg["board"]["drawing_mm"]
+    check("print margins shrink the drawing to the printed area", abs(dw - (sw - ml - mr)) < 0.01 and abs(dh - (sh - mt - mb)) < 0.01, f"{dw} x {dh} mm")
+    layout = marker_layout(cfg)
+    sx, sy = cfg["tapestry"]["width"] / dw, cfg["tapestry"]["height"] / dh
+    sheet = {x: layout[x] / [sx, sy] + [ml, mt] for x in layout}
+    g, m = raw["gap_mm"], raw["marker_mm"]
+    want = {0: (-g - m, -g - m), 1: (sw + g, -g - m), 2: (sw + g, sh + g), 3: (-g - m, sh + g)}
+    err = max(float(np.abs(sheet[x][0] - want[x]).max()) for x in want)
+    check("markers stay gap_mm beyond the sheet edges", err < 0.01, f"max error {err:.3f} mm")
+
+
+def reveal_checks(cfg):
+    import copy
+    from types import SimpleNamespace
+    from compositor import Compositor
+    from reveal import load_art
+    img, S = scene(cfg)
+    Ht = truth(cfg)
+    frame = cv2.warpPerspective(img, Ht @ np.linalg.inv(S), FRAME, flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT, borderValue=DESK)
+    comp = Compositor(cfg, SimpleNamespace(mult_to_tapestry=lambda: np.eye(3), over_to_tapestry=lambda: np.eye(3)))
+    art = np.empty((300, 200, 3), np.uint8)
+    art[:, :100] = (200, 40, 180)
+    art[:, 100:] = (30, 160, 60)
+    comp.set_reveal_art(art)
+    clear = np.full((1, 1, 3), 255, np.uint8)
+    off = comp.compose(frame, Ht, np.eye(3), FRAME, clear, None)
+    comp.force_reveal = True
+    on = comp.compose(frame, Ht, np.eye(3), FRAME, clear, None)
+    left, right, desk = to_frame(Ht, cfg, 0.25, 0.5), to_frame(Ht, cfg, 0.75, 0.5), to_frame(Ht, cfg, -0.3, 0.5)
+    check("paper shows through with the reveal check off", np.abs(sample(off, left) - PAPER).max() < 6, str(sample(off, left).round()))
+    check("reveal check shows the corrupt layer on the paper", np.abs(sample(on, left) - (200, 40, 180)).max() < 6
+          and np.abs(sample(on, right) - (30, 160, 60)).max() < 6, f"{sample(on, left).round()} {sample(on, right).round()}")
+    check("reveal check leaves the desk alone", np.abs(sample(on, desk) - DESK).max() < 6, str(sample(on, desk).round()))
+    missing = copy.deepcopy(cfg)
+    missing["assets"]["corrupt"] = "assets/missing_corrupt_layer.png"
+    check("missing reveal art disables the check instead of failing", load_art(missing) is None)
+
+
 def main():
     default = load()
     check("default paper is tabloid", default["board"]["paper"] == "tabloid", default["board"]["paper"])
@@ -543,6 +640,9 @@ def main():
     check("mapped coordinates retain their calibration status", all(isinstance(s.get("provisional"), bool) for s in mapped))
     artwork_checks(default)
     system_checks(default)
+    margin_checks()
+    reveal_checks(default)
+    alignment_checks(default)
     run(default)
     run(load(paper="letter"))
     old = load(str(ROOT / "beats.json"))

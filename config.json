@@ -9,6 +9,16 @@
  "tapestry_width": 960,
  "overlay_margin": 0.8,
  "beats": "beats_tapestry.json",
+ "source_mode": "print",
+ "print_margin_mm": [0, 0, 0, 0],
+ "assets": {
+  "clean_hi": "assets/clean_hi.png",
+  "corrupt_hi": "assets/corrupt_hi.png",
+  "corrupt": "assets/corrupt_aligned.png",
+  "clean_ref": "assets/clean_ref.png",
+  "panels": "assets/panels.json",
+  "hash": "assets/assets.hash"
+ },
  "quality": {
   "live": {
    "ink_resolution": 0.4,

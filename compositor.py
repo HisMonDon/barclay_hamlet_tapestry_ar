@@ -56,10 +56,26 @@ class Compositor:
         self.dof_wide = d.get("wide", [0.6, 1.4, 0.3])
         self.source_artwork = None
         self.source_artwork_inv = None
+        self.reveal_art = None
+        self.reveal_inv = None
+        self.force_reveal = False
+        art = getattr(scene, "reveal_art", None)
+        if art is not None:
+            self.set_reveal_art(art)
 
     def set_source_artwork(self, image):
         self.source_artwork = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
         self.source_artwork_inv = np.diag([image.shape[1] / self.tw, image.shape[0] / self.th, 1.0])
+
+    def set_reveal_art(self, image):
+        self.reveal_art = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+        self.reveal_inv = np.diag([image.shape[1] / self.tw, image.shape[0] / self.th, 1.0])
+
+    @staticmethod
+    def _paint(out, art, M, size):
+        img = cv2.warpPerspective(art, M, size, flags=INV, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+        clear = cv2.subtract(255, img[..., 3])
+        return cv2.add(cv2.multiply(out, cv2.merge([clear, clear, clear]), scale=1 / 255), img[..., :3])
 
     def crop_matrix(self, t):
         x, y, w, _, roll = self.timeline.camera_pose(t)
@@ -116,10 +132,9 @@ class Compositor:
             out = cv2.warpPerspective(frame, M, (w, h), flags=INV, borderMode=cv2.BORDER_CONSTANT, borderValue=self.bg)
         Mt = np.linalg.inv(H) @ M
         if self.source_artwork is not None:
-            art = cv2.warpPerspective(self.source_artwork, self.source_artwork_inv @ Mt, (w, h), flags=INV,
-                                      borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
-            clear = cv2.subtract(255, art[..., 3])
-            out = cv2.add(cv2.multiply(out, cv2.merge([clear, clear, clear]), scale=1 / 255), art[..., :3])
+            out = self._paint(out, self.source_artwork, self.source_artwork_inv @ Mt, (w, h))
+        if self.force_reveal and self.reveal_art is not None:
+            out = self._paint(out, self.reveal_art, self.reveal_inv @ Mt, (w, h))
         ink = cv2.warpPerspective(mult, self.mult_inv @ Mt, (w, h), flags=INV,
                                   borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
         out = cv2.multiply(out, ink, scale=1.0 / 255.0)
