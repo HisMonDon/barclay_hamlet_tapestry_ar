@@ -22,7 +22,7 @@
     "earlier_audio_contains_sound": true
   },
   "video": {
-    "bytes": 91663454,
+    "bytes": 91213670,
     "frame_count": 2250,
     "fps": 30.0,
     "width": 1920,
@@ -168,5 +168,12 @@
     "earlier_peak": 0.70703125,
     "silent_tail_peak": 0.0
   },
-  "passed": true
+  "passed": true,
+  "artwork": {
+    "width": 1000,
+    "height": 1573,
+    "sha256": "a2f7c67e06da7fc01a5bd6114d16e59ccfa13e099eabcf5d2f5c3daace9289ba",
+    "previous_artwork": "assets/hamlet_tapestry_previous.png"
+  },
+  "render_seconds": 637.6
 }

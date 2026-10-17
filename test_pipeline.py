@@ -336,7 +336,7 @@ def artwork_checks(cfg):
     check("default scan selects the supplied tapestry", selected_path == expected_path, str(selected_path))
     check("supplied tapestry exists", expected_path.is_file())
     expected = cv2.imread(str(expected_path), cv2.IMREAD_COLOR)
-    check("supplied tapestry retains its original dimensions", expected is not None and expected.shape == (1559, 1009, 3),
+    check("supplied tapestry retains its original dimensions", expected is not None and expected.shape == (1573, 1000, 3),
           str(None if expected is None else expected.shape))
     source, scan = load_source(cfg, None), load_scan(cfg)
     check("offline source loads the supplied pixels exactly", expected is not None and np.array_equal(source, expected))

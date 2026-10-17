@@ -1,5 +1,6 @@
 # Supplied tapestry artwork
 
+- Replaced the art with the latest supplied 1000x1573 PNG, retaining its exact bytes and clean throne scene. The previous supplied art is preserved as `assets/hamlet_tapestry_previous.png`.
 - The supplied PNG is preserved unchanged in `assets/hamlet_tapestry.png` and is now the default art through `beats_tapestry.json`.
 - Panel regions, ghost protection, prop anchors, ink paths, camera centres and focus targets are mapped to its layout. Original beat files and schematic art remain available.
 - The matching backup is `renders/backup_tapestry.mp4`. Schematic generation keeps its own output path, and missing configured art reports an error.

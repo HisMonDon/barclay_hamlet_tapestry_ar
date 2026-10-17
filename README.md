@@ -2,7 +2,7 @@
 
 A camera tracks four ArUco markers around a hand-drawn Hamlet tapestry. Ink follows the corruption through the play, embroidered weeds emerge from soaked ink, and a gold banner covers the darkness without removing it. At the end, weeds cross onto the desk, the view opens to the whole camera frame, and the image holds in silence.
 
-The default `beats_tapestry.json` uses the supplied artwork in `assets/hamlet_tapestry.png`, with B01-B21, 75 seconds and camera keys for every beat. Panel regions, effect anchors and close-ups are mapped to this image. The original `beats.json`, schematic `beats_v2.json` and `assets/reference_tapestry.png` are preserved.
+The default `beats_tapestry.json` uses the latest supplied 1000x1573 artwork in `assets/hamlet_tapestry.png`, with B01-B21, 75 seconds and camera keys for every beat. Panel regions, effect anchors and close-ups are mapped to this image, including the clean red-and-blue throne scene. The previous supplied image is preserved in `assets/hamlet_tapestry_previous.png`; the original `beats.json`, schematic `beats_v2.json` and `assets/reference_tapestry.png` are also preserved.
 
 ## Install and run on Windows
 
