@@ -35,6 +35,8 @@ class Scene:
             if self.reveal_art is None:
                 raise ValueError("This beat file needs the reveal art: run python -m tools.align_layers")
             self.reveal = RevealEngine(cfg, timeline, self.reveal_art, cache)
+            if self.reveal.serpent is not None:
+                timeline.follow(self.reveal.serpent.path, {x["id"]: x["geo"]["rect"] for x in self.reveal.panels})
         self.clean_ref = load_art(cfg, "clean_ref") if self.reveal is not None else None
         self.over_canvas = Canvas(self.tw, self.th, cfg.get("overlay", {}).get("scale", 1.0), margin)
         self.ctx = propmod.Ctx(self.tw, self.th, self.over_canvas)

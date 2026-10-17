@@ -1,6 +1,8 @@
 import math
 import random
 
+import numpy as np
+
 EASES = {
     "settle": lambda p: 0.5 - 0.5 * math.cos(math.pi * p),
     "linear": lambda p: p,
@@ -20,6 +22,26 @@ def phase_times(start, avail, fractions):
     out = [start]
     for x in PHASES:
         out.append(out[-1] + avail * fractions.get(x, 0.0))
+    return out
+
+
+def span_clamp(c, span):
+    half = np.asarray(span, np.float64) / 2
+    return np.clip(c, np.minimum(half, 1 - half), np.maximum(half, 1 - half))
+
+
+def spring(u, dt, omega):
+    out = np.empty(len(u))
+    p, v = float(u[0]), 0.0
+    k = math.exp(-omega * dt)
+    out[0] = p
+    for x in range(1, len(u)):
+        g = 0.5 * (u[x - 1] + u[x])
+        e = p - g
+        b = v + omega * e
+        p = g + (e + b * dt) * k
+        v = (v - omega * b * dt) * k
+        out[x] = p
     return out
 
 
@@ -61,6 +83,11 @@ class Timeline:
         self.shake = [b.get("handheld", 1.0) for b in self.beats]
         self.pulls = [(start + e.get("t", 0.0), max(1e-3, e.get("dur", 0.8)), e.get("amount", 0.4))
                       for start, b in zip(self.starts, self.beats) for e in b.get("lens", [])]
+        self.fo = cam.get("follow")
+        self.ceiling_px = cam.get("ceiling_px")
+        self.ceiling_knee = max(1e-3, cam.get("ceiling_knee", 0.15))
+        self.follows = [(x, x) if isinstance(x, (int, float)) else tuple(x) for x in (b.get("follow", 0.0) for b in self.beats)]
+        self.fol = None
         self.hh = None
         if self.handheld:
             rng = random.Random(self.handheld.get("seed", 13))
@@ -164,6 +191,60 @@ class Timeline:
         f = a[4] + (b[4] - a[4]) * p
         return x, y, w, f, a[5] + (b[5] - a[5]) * p, a[6] + (b[6] - a[6]) * p
 
+    def follow_level(self, t):
+        i = self.beat_at(t)
+        cur = self.follows[i]
+        prev = self.follows[i - 1] if i else cur
+        p = min(1.0, max(0.0, (t - self.starts[i]) / max(1e-6, self.fo.get("blend_s", 1.0))))
+        k = 0.5 - 0.5 * math.cos(math.pi * p)
+        return prev[0] + (cur[0] - prev[0]) * k, prev[1] + (cur[1] - prev[1]) * k
+
+    def clamp(self, x, y, w):
+        if self.fol is None:
+            return x, y
+        return float(span_clamp(x, w)), float(span_clamp(y, w / (self.aspect * self.out_aspect)))
+
+    def follow(self, route, rects):
+        """Precompute the follow camera: a critically damped spring on centre and log width, chasing the
+        Serpent's head one look-ahead ahead (or the panel it is flooding), sampled once so every t is pure."""
+        if not self.fo or route is None:
+            return
+        dt = 1.0 / self.fo.get("rate_hz", 120)
+        ahead = self.fo.get("lookahead_s", 0.35)
+        omega = self.fo.get("omega", 3.5)
+        tt = np.arange(0.0, min(self.hold_t, self.end) + dt, dt)
+        K = np.array([self._interp(x)[:3] for x in tt])
+        states = [route.state(x + ahead) for x in tt]
+        S = route.at(np.array([x["head"] for x in states])) / [1.0, route.aspect]
+        for x in range(len(tt)):
+            sg = states[x]["stage"]
+            if sg is not None and sg["id"] in rects and sg["times"][1] <= tt[x] + ahead < sg["times"][3]:
+                x0, y0, x1, y1 = rects[sg["id"]]
+                S[x] = (0.5 * (x0 + x1), 0.5 * (y0 + y1))
+        W = np.array([self.follow_level(x) for x in tt])
+        vs = self.aspect * self.out_aspect
+        TX = span_clamp(K[:, 0] + (S[:, 0] - K[:, 0]) * W[:, 0], K[:, 2])
+        TY = span_clamp(K[:, 1] + (S[:, 1] - K[:, 1]) * W[:, 1], K[:, 2] / vs)
+        LW = spring(np.log(K[:, 2]), dt, omega)
+        X = span_clamp(spring(TX, dt, omega), np.exp(LW))
+        Y = span_clamp(spring(TY, dt, omega), np.exp(LW) / vs)
+        self.fol = (tt, X, Y, LW, X - K[:, 0], Y - K[:, 1], TX, TY)
+
+    def _base(self, t):
+        if self.fol is None:
+            return self._interp(t)
+        t = min(t, self.hold_t)
+        k = self._interp(t)
+        tt, X, Y, LW, DX, DY = self.fol[:6]
+        return (float(np.interp(t, tt, X)), float(np.interp(t, tt, Y)), math.exp(float(np.interp(t, tt, LW))), k[3],
+                k[4] + float(np.interp(t, tt, DX)), k[5] + float(np.interp(t, tt, DY)))
+
+    def follow_target(self, t):
+        if self.fol is None:
+            return None
+        tt, t = self.fol[0], min(t, self.hold_t)
+        return float(np.interp(t, tt, self.fol[6])), float(np.interp(t, tt, self.fol[7]))
+
     def shake_level(self, t):
         i = self.beat_at(t)
         cur = self.shake[i]
@@ -176,7 +257,7 @@ class Timeline:
 
     def camera_pose(self, t):
         """Camera centre, width, full-frame blend and roll (radians), including handheld motion."""
-        x, y, w, f = self._interp(t)[:4]
+        x, y, w, f = self._base(t)[:4]
         roll = 0.0
         if self.drift:
             amp, freq, ph = self.drift["amp"], self.drift["freq"], self.drift["phase"]
@@ -198,7 +279,7 @@ class Timeline:
         return self.camera_pose(t)[:4]
 
     def _speed(self, t, dt=0.04):
-        a, b = self._interp(t - dt), self._interp(t + dt)
+        a, b = self._base(t - dt), self._base(t + dt)
         w = max(1e-3, 0.5 * (a[2] + b[2]))
         move = math.hypot(b[0] - a[0], (b[1] - a[1]) * self.aspect) / w + abs(math.log(b[2] / a[2]))
         return move / (2 * dt)
@@ -207,7 +288,7 @@ class Timeline:
         """Focus target (tapestry coordinates, trailing the camera) and global defocus 0-1 for rack focus."""
         L = self.lens
         lag = L.get("lag", 0.2)
-        fx, fy = self._interp(t - lag)[4:6]
+        fx, fy = self._base(t - lag)[4:6]
         if t >= self.hold_t:
             return fx, fy, 0.0
         d = 0.0

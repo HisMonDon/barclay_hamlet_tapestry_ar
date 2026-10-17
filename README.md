@@ -26,7 +26,7 @@ Pick portrait `tabloid` or `letter` in `config.json` and regenerate `markers.pdf
 | R | Reveal check: show the whole corrupt layer on the paper |
 | Shift+R / Home | Restart and play |
 | V | Virtual camera / full composited camera frame |
-| D | Operator debug display: camera/audio status, fps, and in the reveal show the panel outlines, phases and the active arrival heatmap |
+| D | Operator debug display: camera/audio status, fps, and in the reveal show the panel outlines, phases, the active arrival heatmap, the camera's follow target and its zoom (marked when the ceiling holds it back) |
 | C | Open / close the operator controls window |
 | T | Cycle the ink tone (Iron gall, Lamp black, Oxblood) |
 | P | Switch quality preset (live / render), rebuilt in the background |
@@ -99,6 +99,12 @@ A panel beat carries a `panel` block:
 The Serpent (`serpent.py`) is born at the first panel's entry, travels along the gold pillars and frame bands on the `serpent.route` of each panel beat, pauses and swells at each BREACH, pours itself into the FLOOD, and re-forms at the exit as the ink drains into it. Its path is a centripetal Catmull-Rom spline through the waypoints with the lateral S-wave baked in (`amplitude_px`, `wavelength_px`, per-beat `wave` multipliers), so the body follows the head's own track. The body is a variable-width SDF with a scrolling-noise edge, drop shadow, damp halo, a tailward sheen, a poison glint at breaches and birth, capillaries bleeding into the fibres, and droplets that stay behind as residue. The last panel beat's `settle` waypoints coil it up at rest. All of it is a function of `t`.
 
 `delay` is seconds from the beat start; `phases` are fractions of the rest of the beat, and whatever remains is SETTLED. During FLOOD the ink front leads the reveal by at least 0.15 s and the reveal finishes under the ink before RECEDE drains toward the exit, so no moving edge between clean and corrupt is ever uncovered. Residue veins stay along the drain channel and creep in from the corners. `"mode": "light"` (the ghost) reveals with a cool light wipe and no ink. Panel outlines come from `assets/panels.json`. Ink colours, widths, vein and cost settings live in the beat file's `reveal` block; `quality.<preset>.reveal_width` sets the mask resolution (550 live, 1100 render).
+
+### Following the Serpent
+
+The virtual camera follows the Serpent. Its target is the head 0.35 s ahead along the path, or the centre of the panel while that panel floods and blinks. Each beat's `"follow"` weight mixes the target with the keyed centre (0 keeps the keyed framing, 1 follows fully, `[x, y]` sets the axes separately), and a change of weight eases in over `blend_s`. A critically damped spring (ω 3.5 rad/s) carries the centre and the zoom, so there are no cuts. The spring is integrated once at startup on a fixed 120 Hz grid, which keeps the camera a pure function of `t`. The centre is held on the paper: a crop narrower than the sheet stays inside it, and a wider crop keeps the whole sheet in view. Per-beat zoom stays in the `camera` keys.
+
+The zoom ceiling keeps the crop at least `ceiling_px` (640) camera pixels wide. It is measured through the tracked homography every frame and eases in over `ceiling_knee` (15%) instead of stopping a push dead. It applies to the live feed, recorded video and the live-preset board. A render that paints the scan directly has no camera pixels to protect and keeps the full push. A 2.5× push needs the paper at least about 580 px wide in a 1080p feed, so frame the board tightly; on the synthetic board (paper about 390 px wide) the deepest pushes stop near 1.7-1.9×. Settings live under `camera.follow`, `camera.ceiling_px` and `camera.ceiling_knee` in the beat file.
 
 ### Matching the camera
 

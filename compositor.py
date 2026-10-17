@@ -19,6 +19,16 @@ def fit_matrix(src_w, src_h, ow, oh):
     return np.array([[1 / s, 0, -x0 / s], [0, 1 / s, -y0 / s], [0, 0, 1]], np.float64)
 
 
+def soft_floor(s, lim, knee):
+    k = knee * lim
+    d = s - lim
+    if d >= k:
+        return s
+    if d <= -k:
+        return lim
+    return lim + (d + k) ** 2 / (4 * k)
+
+
 def blend_matrices(Ma, Mb, f, ow, oh):
     if f <= 0.0:
         return Ma
@@ -34,7 +44,7 @@ class Compositor:
     def __init__(self, cfg, scene, timeline=None):
         self.cfg = cfg
         self.scene = scene
-        self.timeline = timeline or Timeline(cfg)
+        self.timeline = timeline or getattr(scene, "timeline", None) or Timeline(cfg)
         self.tw, self.th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
         sc = cfg.get("output_scale", 1.0)
         self.ow = int(round(cfg["output"]["width"] * sc))
@@ -62,6 +72,7 @@ class Compositor:
         self.reveal_inv = None
         self.force_reveal = False
         self.last = None
+        self._pose = None
         art = getattr(scene, "reveal_art", None)
         if art is not None:
             self.set_reveal_art(art)
@@ -159,6 +170,18 @@ class Compositor:
             sk = sp.skeleton(t)
             if sk is not None:
                 cv2.polylines(out, [np.round(to_out(sk)).astype(np.int32)], False, (120, 255, 120), 2, cv2.LINE_AA)
+        tl = self.timeline
+        tg = tl.follow_target(t)
+        if tg is not None:
+            q = cv2.perspectiveTransform(np.float64([[[tg[0] * self.tw, tg[1] * self.th]]]), P)[0, 0]
+            cv2.drawMarker(out, (int(round(q[0])), int(round(q[1]))), (255, 200, 90), cv2.MARKER_CROSS, 18, 1, cv2.LINE_AA)
+            cx, cy, w, f, roll, want = self.pose(t, H)
+            z = tl.aspect * tl.out_aspect
+            wx, wy = tl.follow_level(t)
+            label = f"camera {z / want:.2f}x  follow {wx:.1f}/{wy:.1f}" + (f"  ceiling {z / w:.2f}x" if w > want * 1.0005 else "")
+            org = (8, out.shape[0] - 12)
+            cv2.putText(out, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(out, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 90), 1, cv2.LINE_AA)
         return out
 
     @staticmethod
@@ -167,8 +190,35 @@ class Compositor:
         clear = cv2.subtract(255, img[..., 3])
         return cv2.add(cv2.multiply(out, cv2.merge([clear, clear, clear]), scale=1 / 255), img[..., :3])
 
-    def crop_matrix(self, t):
-        x, y, w, _, roll = self.timeline.camera_pose(t)
+    def span_px(self, H, x, y, w):
+        hw = 0.5 * w * self.tw
+        p = cv2.perspectiveTransform(np.float64([[[x * self.tw - hw, y * self.th], [x * self.tw + hw, y * self.th]]]), H)[0]
+        return float(np.hypot(*(p[1] - p[0])))
+
+    def pose(self, t, H=None):
+        """Camera centre, width, full-frame blend, roll and the requested width. The width is raised so the crop
+        never spans fewer than ceiling_px camera pixels, where the phone feed falls apart; a directly painted
+        scan has no camera pixels to protect."""
+        if self._pose is not None and self._pose[0] == t and self._pose[1] is H:
+            return self._pose[2]
+        cx, cy, w, f, roll = self.timeline.camera_pose(t)
+        want = w
+        lim = self.timeline.ceiling_px
+        if lim and H is not None and self.source_artwork is None:
+            s = self.span_px(H, cx, cy, w)
+            goal = soft_floor(s, lim, self.timeline.ceiling_knee)
+            for x in range(4):
+                if s >= goal * 0.999:
+                    break
+                w *= goal / max(1e-6, s)
+                cx, cy = self.timeline.clamp(cx, cy, w)
+                s = self.span_px(H, cx, cy, w)
+        out = (cx, cy, w, f, roll, want)
+        self._pose = (t, H, out)
+        return out
+
+    def crop_matrix(self, t, pose=None):
+        x, y, w, _, roll = (pose or self.timeline.camera_pose(t))[:5]
         cw = w * self.tw
         ch = cw * self.oh / self.ow
         sx, sy = cw / self.ow, ch / self.oh
@@ -182,8 +232,8 @@ class Compositor:
         fit = fit_matrix(frame_shape[1], frame_shape[0], self.ow, self.oh)
         if not virtual or H is None:
             return fit
-        f = self.timeline.camera_full(t)[3]
-        return blend_matrices(H @ self.crop_matrix(t), fit, f, self.ow, self.oh)
+        pose = self.pose(t, H)
+        return blend_matrices(H @ self.crop_matrix(t, pose), fit, pose[3], self.ow, self.oh)
 
     def fit(self, frame):
         return cv2.warpPerspective(frame, fit_matrix(frame.shape[1], frame.shape[0], self.ow, self.oh),
@@ -280,7 +330,7 @@ class Compositor:
     def _lens(self, out, t, H, M):
         if not self.lens.active:
             return out
-        x, y, w, f = self.timeline.camera_full(t)
+        x, y, w, f = self.pose(t, H)[:4]
         fx, fy, defocus = self.timeline.focus(t)
         p = np.linalg.inv(M) @ H @ np.array([fx * self.tw, fy * self.th, 1.0])
         focus = (float(p[0] / p[2]), float(p[1] / p[2]))
@@ -299,6 +349,6 @@ class Compositor:
         out = self.compose(frame, H, M, self.work, *layers, extra=extra)
         if virtual:
             out = self._lens(out, tt, H, M)
-            out = self.motes.apply(out, tt, self.timeline.camera(tt))
+            out = self.motes.apply(out, tt, self.pose(tt, H)[:3])
         out = self.atmosphere.apply(out, t)
         return out if self.work == (self.ow, self.oh) else cv2.resize(out, (self.ow, self.oh), interpolation=cv2.INTER_LINEAR)
