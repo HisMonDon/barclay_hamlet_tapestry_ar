@@ -218,7 +218,7 @@ class Timeline:
         S = route.at(np.array([x["head"] for x in states])) / [1.0, route.aspect]
         for x in range(len(tt)):
             sg = states[x]["stage"]
-            if sg is not None and sg["id"] in rects and sg["times"][1] <= tt[x] + ahead < sg["times"][3]:
+            if sg is not None and sg["id"] in rects and not sg.get("swim") and sg["times"][1] <= tt[x] + ahead < sg["times"][3]:
                 x0, y0, x1, y1 = rects[sg["id"]]
                 S[x] = (0.5 * (x0 + x1), 0.5 * (y0 + y1))
         W = np.array([self.follow_level(x) for x in tt])

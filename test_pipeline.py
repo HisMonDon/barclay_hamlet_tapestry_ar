@@ -796,7 +796,7 @@ def serpent_checks_motion(cfg, renderer):
     k = tw / rv.canvas.w0
     mask = np.zeros((th, tw), bool)
     big = cv2.resize(rv.body["I"], (int(round((x1 - x0) * k)), int(round((y1 - y0) * k))), interpolation=cv2.INTER_NEAREST) > 235
-    oy, ox = int(round(y0 * k)), int(round(x0 * k))
+    oy, ox = int(round((y0 - rv.canvas.pad) * k)), int(round((x0 - rv.canvas.pad) * k))
     bh, bw = min(big.shape[0], th - oy), min(big.shape[1], tw - ox)
     mask[oy:oy + bh, ox:ox + bw] = big[:bh, :bw]
     mask = cv2.erode(mask.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
@@ -868,6 +868,112 @@ def follow_checks(cfg, tapestry):
     check("the debug overlay shows the follow target and zoom", dbg.shape == (FRAME[1], FRAME[0], 3))
 
 
+def special_checks(cfg):
+    from render import Source
+    from fields import raster
+    cfg = dict(cfg, fx=dict(cfg["fx"], realism=False))
+    renderer = Renderer(cfg)
+    tl, sc, comp = renderer.timeline, renderer.scene, renderer.comp
+    rv = sc.reveal
+    sp, path = rv.serpent, rv.serpent.path
+    tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
+    w0 = rv.canvas.w0
+    ghost = next(x for x in range(len(rv.panels)) if rv.panels[x]["light"])
+    g = rv.geo[ghost]
+    r0, r1, c0, c1 = g["roi"]
+    own = np.zeros((rv.h, rv.w), bool)
+    own[r0:r1, c0:c1] = g["own"]
+    dist = cv2.distanceTransform(np.where(own, 0, 255).astype(np.uint8), cv2.DIST_L2, 5)
+    keep, sp.keep = sp.keep, None
+    near = math.inf
+    for x in np.arange(tl.at("S01"), tl.at("S04"), 0.02):
+        s = sp.render(float(x))
+        if s is not None and (s["I"] > 8).any():
+            x0, y0, x1, y1 = s["roi"]
+            near = min(near, float(dist[y0:y1, x0:x1][s["I"] > 8].min()))
+    sp.keep = keep
+    check("the Serpent recoils at least 6 px from the ghost panel", near * 1100 / w0 >= 5.9, f"closest ink {near * 1100 / w0:.1f} px (1100-wide paper)")
+
+    src = Source(renderer, "still", None, FRAME)
+    frame, H = src.get()
+    figure = raster(cfg["regions"][cfg["ghost"]["region"]]["polygon"], tw, th) > 0.5
+    gl = rv.ghost_light
+    floor = 0.85 * (0.114 * gl[0] + 0.587 * gl[1] + 0.299 * gl[2])
+    wipe = rv.panels[ghost]["times"]
+    worst = math.inf
+    for x in (wipe[1] + 0.5 * (wipe[2] - wipe[1]), wipe[2] + 0.1, tl.at("S08"), tl.at("S14") - 0.1):
+        out = comp.compose(frame, H, H, (tw, th), *sc.layers(x), extra=sc.extras(x))
+        lum = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)[figure].astype(np.float64)
+        worst = min(worst, float(np.median(lum)))
+    check("the ghost is never darker than ghost_light minus 15%", worst >= floor, f"median {worst:.0f} vs floor {floor:.0f}")
+
+    k = next(x for x in range(len(rv.panels)) if rv.panels[x]["swim"])
+    river, gr = rv.panels[k], rv.geo[k]
+    rr0, rr1, rc0, rc1 = gr["roi"]
+    behind, fronts = 0, []
+    for x in np.arange(river["times"][1], river["times"][2], 0.05):
+        rv.layers(float(x))
+        cols = np.nonzero((rv.I8[rr0:rr1, rc0:rc1] > 40).any(0))[0]
+        if len(cols):
+            front = (rc0 + cols.min() - rv.canvas.pad) / w0
+            head = float(path.at(path.state(float(x))["head"])[0])
+            behind += head > front + 0.01
+            fronts.append(front)
+    check("the Serpent swims the river ahead of its wake", path.state(river["times"][1] + 0.3)["kind"] == "swim" and behind == 0
+          and len(fronts) > 5 and all(b <= a + 1e-6 for a, b in zip(fronts, fronts[1:])), f"{len(fronts)} samples, head behind the ink {behind}")
+
+    weave = next(x for x in sc.weaves if x.cover)
+    banner = weave.render(weave.finish() + 0.1)[..., 3]
+    check("the banner covers the whole sheet and darkens its gaps", weave.bounds == [0.0, 0.0, 1.0, 1.0] and
+          float(np.percentile(banner, 1)) >= 0.55 * 255, f"1st percentile alpha {np.percentile(banner, 1):.0f}")
+    a_t, b_t = weave.finish() + 0.2, weave.finish() + 0.8
+    still = np.array_equal(weave.render(a_t), weave.render(b_t))
+    pad = rv.canvas.pad
+    x0, y0, x1, y1 = [int(round((v - pad) * f)) for v, f in zip(rv.layers(a_t)["sroi"], (tw / w0, th / rv.canvas.h0) * 2)]
+    shot = []
+    for x in (a_t, b_t):
+        out = comp.compose(frame, H, H, (tw, th), *sc.layers(x), extra=sc.extras(x))
+        shot.append(out[max(0, y0):y1, max(0, x0):x1].astype(np.int16))
+    moved = int((np.abs(shot[0] - shot[1]).max(axis=2) > 12).sum())
+    check("the Serpent's sheen visibly moves beneath the finished banner", still and moved > 30, f"{moved} pixels change over the coil")
+
+    soak = sc.weeds.soak
+    roots = [x for x in sc.weeds.roots if x[3] == "veins"]
+    bad, seen = 0, set()
+    for x, y, tr, kind in roots:
+        u, v = x / tw, y / th
+        home = [p for p in rv.panels if not p["light"] and cv2.pointPolygonTest(np.float32(p["geo"]["polygon"]), (u, v), False) >= 0]
+        if not home:
+            bad += 1
+            continue
+        p = home[0]
+        gp = rv.geo[rv.panels.index(p)]
+        i, j = int(v * rv.canvas.h0) - gp["inner"][0], int(u * w0) - gp["inner"][2]
+        vein = 0 <= i < gp["vfinal"].shape[0] and 0 <= j < gp["vfinal"].shape[1] and gp["vfinal"][i, j] > 60
+        bad += not (vein and tr >= p["times"][4] + soak - 1e-6)
+        seen.add(p["id"])
+    floods = {p["id"] for p in rv.panels if not p["light"]}
+    check("weeds sprout from vein ends after their panel settles", roots and bad == 0 and seen == floods, f"{len(roots)} roots, {bad} off a vein or early, panels {len(seen)}/{len(floods)}")
+    S = sc.weeds.S
+    panel = raster(rv.panels[ghost]["geo"]["polygon"], tw, th) > 0.5
+    early = S[S[:, 4] < weave.finish()]
+    pts = np.round(np.vstack([early[:, 0:2], early[:, 2:4]])).astype(np.int64)
+    ok = (pts[:, 0] >= 0) & (pts[:, 1] >= 0) & (pts[:, 0] < tw) & (pts[:, 1] < th)
+    in_ghost = int(panel[pts[ok, 1], pts[ok, 0]].sum())
+    check("no weed grows in the ghost panel before the banner covers it", in_ghost == 0, f"{in_ghost} stitch ends")
+    spill = [x for x in sc.weeds.roots if x[3] == "spill"]
+    off = S[(S[:, 3] > th + 2) & (S[:, 4] <= tl.hold_t)]
+    check("weeds slide off the bottom edge onto the desk", spill and all(x[1] > 0.95 * th for x in spill) and len(off) > 50
+          and not ((S[:, 1] < -2) | (S[:, 3] < -2)).any(), f"{len(spill)} roots, {len(off)} stitches on the desk")
+    st = path.state(tl.hold_t)
+    tail = path.at(st["tail"])[1] / path.aspect
+    check("the Serpent's tail rests just past the bottom edge", st["kind"] == "rest" and 1.0 < tail < 1.04 and path.at(st["head"])[1] / path.aspect > 1.09,
+          f"tail at {tail:.3f} of the sheet height")
+    a = renderer.frame(frame, H, tl.hold_t + 0.5)
+    b = renderer.frame(frame, H, tl.hold_t + 5.0)
+    check("nothing moves in the hold", np.array_equal(a, b))
+
+
 def main():
     default = load()
     check("default paper is tabloid", default["board"]["paper"] == "tabloid", default["board"]["paper"])
@@ -886,6 +992,7 @@ def main():
     alignment_checks(tapestry)
     serpent_checks(default)
     follow_checks(default, tapestry)
+    special_checks(default)
     realism_checks(default)
     run(tapestry)
     run(load(str(ROOT / "beats_tapestry.json"), paper="letter"))

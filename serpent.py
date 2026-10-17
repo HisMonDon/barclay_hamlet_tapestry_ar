@@ -56,12 +56,15 @@ def unit(v):
 
 
 class Route:
-    def __init__(self, cfg, timeline):
+    def __init__(self, cfg, timeline, avoid=None, swim=None):
         sp = cfg.get("reveal", {}).get("serpent", {})
         self.p = sp
         self.aspect = cfg["tapestry"]["height"] / cfg["tapestry"]["width"]
         self.u = 1.0 / SPEC_PX
         self.L = sp.get("length_px", 260) * self.u
+        self.avoid = avoid or []
+        self.swim = swim or {}
+        self.reach = sp.get("swim_reach", 0.8)
         self.pts, self.wave, self.stop = [], [], []
         stages = self._stages(timeline)
         self.stages = stages
@@ -72,7 +75,7 @@ class Route:
         tt = np.arange(0.0, timeline.end + 0.02, 0.01)
         states = [self.state(x) for x in tt]
         heads = np.array([x["head"] for x in states])
-        moving = np.array([x["kind"] in ("move", "rise") and x["visible"] for x in states])
+        moving = np.array([x["kind"] in ("move", "rise", "swim", "spill") and x["visible"] for x in states])
         self.tt, self.vv = tt, np.where(moving, np.abs(np.gradient(heads, tt)), 0.0)
 
     def _add(self, p, wave, stop):
@@ -98,7 +101,7 @@ class Route:
                 continue
             sb = timeline.beats[beat].get("serpent", {})
             wave = sb.get("wave", [1.0, 1.0])
-            stage = {"id": spec["id"], "times": times, "beat": beat, "length": sb.get("length", 1.0)}
+            stage = {"id": spec["id"], "times": times, "beat": beat, "length": sb.get("length", 1.0), "swim": spec["id"] in self.swim}
             if not self.pts:
                 stage["birth"] = self._add(spec["entry"], wave, True)
                 stage["pool"] = sb.get("birth", {}).get("pool_s", 0.0)
@@ -114,6 +117,14 @@ class Route:
         self.settle_s = last.get("settle_s", self.p.get("settle_s", 1.6))
         self.end = self._extend(settle, last.get("settle_wave", [0.4, 1.0])) if settle else out[-1]["exit"]
         self.stop[self.end] = True
+        self.spill = None
+        for x in range(out[-1]["beat"] + 1, len(timeline.beats)):
+            sp = timeline.beats[x].get("serpent", {}).get("spill")
+            if sp:
+                k = self._extend(sp["route"], sp.get("wave", [0.8, 1.0]))
+                self.stop[k] = True
+                self.spill = {"t": timeline.starts[x] + sp.get("delay", 0.0), "dur": sp.get("dur", 3.0), "tail": sp.get("tail_px", 18) * self.u}
+                break
         return out
 
     def _geometry(self):
@@ -127,10 +138,23 @@ class Route:
         stops = sw[np.array(self.stop)]
         near = np.min(np.abs(s0[:, None] - stops[None, :]), axis=1)
         amp = amp * smoothstep(0.0, 0.6 * lam, near)
+        self.clearance = None
+        if self.avoid:
+            self._field()
+            sp = self.p
+            self.clearance = (sp.get("recoil_px", 6) + max(x[1] for x in PROFILE) / 2 + sp.get("edge_noise_px", 2.5) + sp.get("feather_px", 3.0) / 2) * self.u
+            amp = amp * smoothstep(self.clearance, self.clearance + 0.5 * lam, self.gap(dense)[0])
         tan = unit(np.gradient(dense, axis=0))
         nrm = np.stack([-tan[:, 1], tan[:, 0]], axis=1)
         phi = 2 * np.pi * np.concatenate([[0.0], np.cumsum(np.diff(s0) / lam[1:])])
         curve = dense + (amp * np.sin(phi))[:, None] * nrm
+        if self.clearance is not None:
+            for x in range(8):
+                gap, away = self.gap(curve)
+                push = np.maximum(0.0, self.clearance - gap) * 1.25
+                if not push.any():
+                    break
+                curve = curve + away * cv2.GaussianBlur(push[:, None], (1, 0), 12.0)
         cs = arc(curve)
         self.s = np.arange(0.0, cs[-1], step)
         self.xy = np.stack([np.interp(self.s, cs, curve[:, 0]), np.interp(self.s, cs, curve[:, 1])], axis=1)
@@ -139,6 +163,38 @@ class Route:
         self.nrm = np.stack([-tan[:, 1], tan[:, 0]], axis=1)
         self.ws = cs[marks]
         self.total = float(cs[-1])
+
+    def _field(self):
+        W, H = int(SPEC_PX), int(round(SPEC_PX * self.aspect))
+        mask = np.zeros((H, W), np.uint8)
+        for x in self.avoid:
+            cv2.fillPoly(mask, [np.round(np.array(x, np.float64) * [W, H] * 16).astype(np.int32)], 255, cv2.LINE_8, 4)
+        sd = cv2.distanceTransform(cv2.bitwise_not(mask), cv2.DIST_L2, 5) - cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+        gy, gx = np.gradient(cv2.GaussianBlur(sd, (0, 0), 2.0))
+        self.sdf = (sd.astype(np.float32), gx.astype(np.float32), gy.astype(np.float32))
+
+    def gap(self, xy):
+        """Distance from each point (route units) to the nearest avoided panel, and the direction away from it."""
+        n = len(xy)
+        pad = -n % 512
+        mx = np.pad(xy[:, 0] * SPEC_PX - 0.5, (0, pad)).astype(np.float32).reshape(-1, 512)
+        my = np.pad(xy[:, 1] * SPEC_PX - 0.5, (0, pad)).astype(np.float32).reshape(-1, 512)
+        sd, gx, gy = (cv2.remap(x, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).reshape(-1)[:n] for x in self.sdf)
+        return sd.astype(np.float64) * self.u, unit(np.stack([gx, gy], axis=1).astype(np.float64))
+
+    def _swim(self, stage, p):
+        u0, U = self.swim[stage["id"]]
+        q = min(1.0, max(0.0, (U - u0) * travel(p) / max(1e-6, self.reach - u0)))
+        return 1 - (1 - q) ** 2
+
+    def swim_track(self, pid):
+        """The swimming head's track through a panel and, at each point, the flood level u at which the head passes."""
+        stage = next(x for x in self.stages if x["id"] == pid)
+        e, o = self.ws[stage["entry"]], self.ws[stage["exit"]]
+        s = np.arange(e, o, 0.5 * self.u)
+        a = (s - e) / max(1e-9, o - e)
+        u0 = self.swim[pid][0]
+        return self.at(s) / [1.0, self.aspect], u0 + (self.reach - u0) * (1 - np.sqrt(np.clip(1 - a, 0, 1)))
 
     def _plan(self, stages):
         plan = [(-math.inf, stages[0]["times"][0], "hidden", 0.0, 0.0, 0.0, None)]
@@ -156,13 +212,28 @@ class Route:
                 plan.append((prev[1], tb, "move", prev[0], e, prev[0], x))
                 plan.append((tb, tf, "breach", e, e, prev[0], x))
                 start = max(prev[0], e - L)
+            if x["swim"]:
+                plan.append((tf, tk, "swim", e, o, prev[0] if prev else start, x))
+                prev = (o, tk)
+                continue
             plan.append((tf, tk, "pour", e, e, start, x))
             plan.append((tk, tr, "hidden", o, o, o, x))
             prev = (o, tr)
         last = stages[-1]
         end = self.ws[self.end]
-        plan.append((prev[1], prev[1] + self.settle_s, "move", prev[0], end, prev[0], last))
-        plan.append((prev[1] + self.settle_s, math.inf, "rest", end, end, prev[0], last))
+        rest = prev[1] + self.settle_s
+        plan.append((prev[1], rest, "move", prev[0], end, prev[0], last))
+        if self.spill:
+            sp = self.spill
+            off = np.nonzero((self.s > end) & (self.xy[:, 1] >= self.aspect))[0]
+            edge = float(self.s[off[0]]) if len(off) else self.total
+            stop = min(self.total, edge + self.L * last["length"] + sp["tail"])
+            sp["edge"], sp["stop"] = edge, stop
+            plan.append((rest, sp["t"], "rest", end, end, prev[0], last))
+            plan.append((sp["t"], sp["t"] + sp["dur"], "spill", end, stop, prev[0], last))
+            plan.append((sp["t"] + sp["dur"], math.inf, "rest", stop, stop, prev[0], last))
+        else:
+            plan.append((rest, math.inf, "rest", end, end, prev[0], last))
         self.plan = plan
         self.starts = [x[0] for x in plan]
 
@@ -174,8 +245,8 @@ class Route:
         if kind == "hidden":
             out["visible"] = False
             return out
-        if kind in ("move", "rise"):
-            head = a + (b - a) * travel(p)
+        if kind in ("move", "rise", "spill", "swim"):
+            head = a + (b - a) * (self._swim(stage, p) if kind == "swim" else travel(p))
             out["head"], out["tail"] = head, max(anchor, head - L)
             if kind == "rise":
                 out["glint"] = math.sin(math.pi * p) ** 2
@@ -246,7 +317,13 @@ class Serpent:
             tan, nrm = path.frame([s])
             base = path.at([s])[0] + nrm[0] * side * path.width(sig) / 2
             ang = math.atan2(nrm[0, 1] * side, nrm[0, 0] * side) + math.radians(float(rng.uniform(-25, 25)))
-            out.append((t, base, ang, float(rng.uniform(8, 20)) * u, float(rng.uniform(1, 2)), rng.normal(0, 1, 4)))
+            length = float(rng.uniform(8, 20)) * u
+            cap = (t, base, ang, length, float(rng.uniform(1, 2)), rng.normal(0, 1, 4))
+            if path.clearance is not None:
+                tip = (base + np.array([math.cos(ang), math.sin(ang)]) * length)[None]
+                if path.gap(tip)[0][0] < self.p.get("recoil_px", 6) * u:
+                    continue
+            out.append(cap)
         for x in path.stages:
             if "birth" not in x:
                 out += self._tendrils(rng, x)
