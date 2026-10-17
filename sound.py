@@ -65,6 +65,10 @@ def synthesize(name, rate, settings):
         env = (0.5 + 0.5 * np.sin(t * 2.1 + 0.8 * np.sin(t * 4.3))) ** 4
         phase = 2 * np.pi * (95 * t + 2 * np.sin(t * 2.6))
         data = (np.sin(phase) + 0.3 * np.sin(phase * 2.03)) * env * 0.12 + low * 0.2
+    elif name == "inhale":
+        p = np.clip(t / max(0.001, duration), 0, 1)
+        air = cv2.GaussianBlur(noise[:, None], (1, 0), max(1, rate / 9000))[:, 0]
+        data = (0.55 * air + 0.45 * low) * np.sin(np.pi * p) ** 2 * np.sqrt(p) * 0.35
     elif name == "shuttle":
         data = low * np.sin(np.pi * np.minimum(1, t / max(0.001, duration))) ** 2 * np.exp(-t * 5)
         data += np.sin(2 * np.pi * 170 * t) * np.exp(-t * 38) * 0.12
@@ -83,7 +87,9 @@ class Soundtrack:
         self.p = cfg.get("sound", {})
         self.rate = int(self.p.get("rate", 44100))
         self.end = timeline.end
-        self.silence = timeline.at(self.p.get("silence_from", "B21")) if "B21" in timeline.ids else self.end
+        flagged = [timeline.starts[x] for x in range(len(timeline.beats)) if timeline.beats[x].get("silence")]
+        silence_from = self.p.get("silence_from", "B21")
+        self.silence = flagged[0] if flagged else timeline.at(silence_from) if silence_from in timeline.ids else timeline.hold_t
         self.samples = np.zeros(round(self.end * self.rate), np.float32)
         self.events = []
         self.assets = {}
@@ -98,6 +104,8 @@ class Soundtrack:
                          if timeline.beat_at(weave.t0) == beat]
             for x in times:
                 self._cue(cue, x, timeline)
+        for x in (scene.sound_events() if hasattr(scene, "sound_events") else []):
+            self._cue(x[0], x[1], timeline)
         self.samples *= self.p.get("volume", 0.8)
         np.clip(self.samples, -0.98, 0.98, out=self.samples)
         self.samples[round(self.silence * self.rate):] = 0

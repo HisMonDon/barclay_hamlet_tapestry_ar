@@ -1,0 +1,535 @@
+{
+ "title": "Hamlet's Tapestry: The Serpent Beneath",
+ "version": 4,
+ "note": "Reveal show from REVEAL_SPEC.md. Coordinates are normalized to assets/clean_hi.png (the printed art). Panel geometry lives in assets/panels.json; each panel beat carries its timing, entry and exit.",
+ "output": {"width": 1920, "height": 1080},
+ "background": "#0b0806",
+ "scan": "assets/clean_ref.png",
+ "ink": {
+  "tone": "Iron gall",
+  "tones": {
+   "Iron gall": {"wet": "#0c0a0e", "dry": "#1a1410", "stain": "#6f6355", "rim": "#050404"},
+   "Lamp black": {"wet": "#060608", "dry": "#151517", "stain": "#6b6862", "rim": "#020202"},
+   "Oxblood": {"wet": "#1c0507", "dry": "#2e0b0b", "stain": "#8a4a3c", "rim": "#0e0203"}
+  },
+  "density": {"wet": 0.97, "dry": 0.95, "dry_s": 3.0},
+  "edge_s": 0.08,
+  "halo": {"alpha": 0.13, "lead_s": 0.2},
+  "rim": {"alpha": 0.55, "stall_s": 0.7, "build_s": 1.6, "width": 2.5},
+  "finger": {"amp_s": 0.3, "omega": 0.6, "cells": 70, "seed": 9},
+  "cost": {
+   "noise": 0.95,
+   "fibre": 0.45,
+   "weave": 0.12,
+   "aniso": 0.04,
+   "line_fast": 0.55,
+   "blank_slow": 1.05,
+   "cells": 14,
+   "octaves": 4,
+   "warp": 0.035,
+   "seed": 7,
+   "lobes": 0.8,
+   "lobe_cells": 3.5,
+   "weave_mm": 1.4,
+   "capillary": 0.55,
+   "capillary_cells": 22,
+   "capillary_sharp": 6.0,
+   "wick": {"on": true, "mm": 3.2, "run_mm": 7.0, "fraction": 0.16, "slow": 0.35}
+  },
+  "texture": {"grain": 0.04, "fibre": 0.04},
+  "gloss": 0.12,
+  "sheen": {
+   "on": true,
+   "front": 0.6,
+   "meniscus_s": 0.14,
+   "wet": 0.09,
+   "wet_s": 1.1,
+   "sway": 0.35,
+   "normal_blur_mm": 1.0,
+   "colour": "#ffe4c0",
+   "glow": 0.3,
+   "glow_mm": 1.6
+  },
+  "gold_resist": 0.25,
+  "gravity": 0.12,
+  "resolution": 0.75,
+  "soften_px": 0.7
+ },
+ "ghost": {"region": "ghost", "cap": 0.35, "tint": "#2a74e6", "feather": 0.003},
+ "weeds": {
+  "soak_s": 1.4,
+  "speed": 34.0,
+  "stitch_mm": 3.6,
+  "width_mm": 0.95,
+  "colours": {"olive": "#4b4a24", "blackgreen": "#1c2a1b", "rust": "#6e3518", "deepolive": "#353a1c", "bud": "#5a2416", "petal": "#6b5a2c"},
+  "highlight": {"olive": "#68663a", "blackgreen": "#304529", "rust": "#8e4f2b", "deepolive": "#4f5530", "bud": "#7f3a24", "petal": "#8a7742"},
+  "shadow": "#090b06",
+  "shadow_soft": {
+   "on": true,
+   "strength": 0.55,
+   "blur_mm": 1.4,
+   "offset": [0.75, 1.0]
+  },
+  "mix": {"olive": 0.4, "blackgreen": 0.35, "deepolive": 0.17, "rust": 0.08, "bud": 0.0, "petal": 0.0},
+  "knot_colours": ["rust", "rust", "olive"],
+  "light": [-0.6, -0.8],
+  "avoid_regions": ["banner", "ghost"]
+ },
+ "banner": {
+  "colour": "#c99b45",
+  "hi": "#f2d488",
+  "lo": "#7a5a22",
+  "pitch": 0.014,
+  "fill": 0.72,
+  "warp": 0.06,
+  "duty": 0.955,
+  "jitter": 0.12,
+  "twill": 0.37,
+  "shimmer": 0.16,
+  "shimmer_speed": 0.07
+ },
+ "splash": {"on": true, "stain": false, "energy": 1.0, "count": 1.0},
+ "camera": {
+  "ease": "settle",
+  "dip": 0.18,
+  "dip_max": 0.22,
+  "handheld": {
+   "amp": [0.0045, 0.0035],
+   "roll_deg": 0.22,
+   "zoom": 0.004,
+   "freqs": [0.11, 0.23, 0.47, 0.93, 1.9],
+   "weights": [1.0, 0.7, 0.4, 0.2, 0.08],
+   "fade_s": 0.9,
+   "seed": 13
+  }
+ },
+ "reveal": {
+  "palette": {"ink_rgb": "#0E0B10", "ink_edge": "#1C1620", "sheen_rgb": "#6B7A5A", "poison_glint": "#8FD14F", "ghost_light": "#DCE3EA"},
+  "ink_alpha": 0.95,
+  "front": 0.08,
+  "reveal_width": 0.1,
+  "lag_s": 0.15,
+  "lead": 0.06,
+  "breach_u": 0.03,
+  "damp": 0.15,
+  "ghost_glow": 0.5,
+  "cost": {"fbm": 0.6, "edge": 0.45, "floor": 0.25, "cells": 9, "octaves": 4, "warp": 0.03, "seed": 41, "aniso": 0.04, "line_contrast": 70.0},
+  "veins": {
+   "alpha": 0.55,
+   "breath": 0.06,
+   "period_s": 4.0,
+   "spine": 0.035,
+   "corner": [0.04, 0.08],
+   "grow_s": 1.6,
+   "cells": 26,
+   "sharp": 7.0,
+   "seed": 17
+  },
+  "sounds": {
+   "breach": {"sound": "drip", "gain": 0.5},
+   "blink": {"sound": "inhale", "gain": 0.3}
+  }
+ },
+ "regions": {
+  "garden": {
+   "polygon": [[0.069824, 0.270571], [0.069801, 0.106963], [0.072131, 0.096237], [0.079037, 0.085796], [0.090346, 0.075832], [0.105887, 0.066535], [0.125313, 0.0581], [0.14811, 0.050716], [0.173844, 0.044673], [0.201912, 0.039873], [0.229985, 0.04465], [0.255729, 0.050674], [0.278539, 0.058041], [0.297982, 0.066464], [0.313537, 0.075751], [0.32486, 0.085711], [0.331777, 0.096152], [0.334116, 0.106882], [0.33418, 0.270558]],
+   "provisional": true
+  },
+  "battlement": {
+   "polygon": [[0.36731, 0.270136], [0.366289, 0.106906], [0.368576, 0.096153], [0.375486, 0.085683], [0.387024, 0.075688], [0.402741, 0.066361], [0.422368, 0.057897], [0.445453, 0.050487], [0.471545, 0.044424], [0.500098, 0.03961], [0.528678, 0.044427], [0.554803, 0.050494], [0.57793, 0.057906], [0.597603, 0.066373], [0.613372, 0.075702], [0.624965, 0.085699], [0.631933, 0.09617], [0.634279, 0.106923], [0.63415, 0.270156]],
+   "provisional": true
+  },
+  "throne": {
+   "polygon": [[0.662609, 0.270146], [0.662608, 0.107674], [0.665081, 0.097235], [0.672411, 0.087075], [0.684414, 0.077382], [0.700906, 0.068339], [0.721522, 0.060137], [0.74571, 0.052961], [0.773015, 0.047089], [0.802794, 0.042428], [0.830643, 0.047089], [0.85618, 0.05296], [0.878803, 0.060136], [0.898084, 0.068338], [0.913509, 0.07738], [0.924735, 0.087073], [0.93159, 0.097233], [0.933904, 0.107672], [0.933904, 0.270145]],
+   "provisional": true
+  },
+  "prince": {
+   "polygon": [[0.06904, 0.300488], [0.27792, 0.300431], [0.278048, 0.483446], [0.06877, 0.483315]],
+   "provisional": true
+  },
+  "court": {
+   "polygon": [[0.312285, 0.300636], [0.572845, 0.299818], [0.573474, 0.483476], [0.312788, 0.483104]],
+   "provisional": true
+  },
+  "players": {
+   "polygon": [[0.611029, 0.299836], [0.932043, 0.301274], [0.932562, 0.482835], [0.61058, 0.484067]],
+   "provisional": true
+  },
+  "arras": {
+   "polygon": [[0.068893, 0.513174], [0.342702, 0.512706], [0.343007, 0.706021], [0.067805, 0.704894]],
+   "provisional": true
+  },
+  "ophelia": {
+   "polygon": [[0.377607, 0.512831], [0.629538, 0.512885], [0.630652, 0.705523], [0.3787, 0.705618]],
+   "provisional": true
+  },
+  "graveyard": {
+   "polygon": [[0.662878, 0.513039], [0.929734, 0.514185], [0.934017, 0.705493], [0.662764, 0.706123]],
+   "provisional": true
+  },
+  "duel": {
+   "polygon": [[0.069784, 0.789009], [0.338903, 0.788911], [0.339196, 0.952685], [0.068916, 0.95206]],
+   "provisional": true
+  },
+  "feast": {
+   "polygon": [[0.376798, 0.789162], [0.63107, 0.788999], [0.631809, 0.952516], [0.377377, 0.952294]],
+   "provisional": true
+  },
+  "topple": {
+   "polygon": [[0.664605, 0.78886], [0.930569, 0.789902], [0.931977, 0.95204], [0.663915, 0.952959]],
+   "provisional": true
+  },
+  "river": {
+   "polygon": [[0.070617, 0.711871], [0.932896, 0.711871], [0.932896, 0.762763], [0.070618, 0.762763]],
+   "provisional": true
+  },
+  "meadow": {
+   "polygon": [[0.070622, 0.957848], [0.932896, 0.95785], [0.932896, 1.0], [0.070623, 1.0]],
+   "provisional": true
+  },
+  "banner": {
+   "polygon": [[0.37684, 0.800995], [0.631805, 0.800996], [0.631806, 0.951856], [0.376842, 0.951855]],
+   "provisional": true
+  },
+  "ghost": {
+   "polygon": [[0.508078, 0.110364], [0.516298, 0.115652], [0.523496, 0.109031], [0.531713, 0.116306], [0.542, 0.111006], [0.545071, 0.119607], [0.551242, 0.118281], [0.549171, 0.125557], [0.554298, 0.132164], [0.554278, 0.141411], [0.571712, 0.150645], [0.583966, 0.171077], [0.597196, 0.198045], [0.606299, 0.225606], [0.586858, 0.222977], [0.584838, 0.215109], [0.56744, 0.212482], [0.567423, 0.219039], [0.550028, 0.216412], [0.547997, 0.207885], [0.530598, 0.205914], [0.530591, 0.213129], [0.5132, 0.210501], [0.511154, 0.201972], [0.496826, 0.200659], [0.495792, 0.182923], [0.489637, 0.170427], [0.473231, 0.162529], [0.461945, 0.154627], [0.456788, 0.141442], [0.452652, 0.128241], [0.452633, 0.120975], [0.455697, 0.115023], [0.454647, 0.105762], [0.457722, 0.103112], [0.457709, 0.097814], [0.461817, 0.096487], [0.464905, 0.099134], [0.464927, 0.109726], [0.467996, 0.103767], [0.471081, 0.10509], [0.469048, 0.116339], [0.468033, 0.12295], [0.472154, 0.131537], [0.486531, 0.140113], [0.50295, 0.144066], [0.503974, 0.137467], [0.503972, 0.129541], [0.509105, 0.12227], [0.506024, 0.119627]],
+   "provisional": true
+  },
+  "tapestry": {
+   "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+   "provisional": false
+  }
+ },
+ "beats": [
+  {
+   "id": "S00",
+   "name": "Clean",
+   "duration": 2.0,
+   "handheld": 0.5,
+   "desc": "The clean, official tapestry; silence",
+   "camera": [
+    {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 1.0}
+   ]
+  },
+  {
+   "id": "S01",
+   "name": "Garden",
+   "duration": 6.0,
+   "handheld": 0.7,
+   "desc": "One black drop falls from Claudius's vial into the sleeping king's ear; the garden floods and drains",
+   "panel": {
+    "id": "garden",
+    "delay": 1.5,
+    "phases": {"breach": 0.1556, "flood": 0.4, "blink": 0.0889, "recede": 0.2889},
+    "entry": [0.143561, 0.202013],
+    "exit": [0.33, 0.11],
+    "speed_mul": 1.0
+   },
+   "props": [
+    {
+     "kind": "vial",
+     "clip": "garden",
+     "t": 0.0,
+     "hand": [0.190675, 0.165095],
+     "ear": [0.143561, 0.202013],
+     "tilt": -125,
+     "tilt_s": 0.6,
+     "bead_s": 0.6,
+     "fall_s": 0.3,
+     "size": 0.025,
+     "seed": false,
+     "linger": 0.8
+    }
+   ],
+   "camera": [
+    {"t": 0.3, "x": 0.5, "y": 0.2273, "zoom": 2.2},
+    {"t": 5.8, "x": 0.5, "y": 0.3125, "zoom": 1.6}
+   ]
+  },
+  {
+   "id": "S02",
+   "name": "Ghost",
+   "duration": 3.0,
+   "handheld": 0.6,
+   "desc": "Ink cannot enter: the truth arrives as cool light falling from the moon",
+   "panel": {
+    "id": "ghost",
+    "mode": "light",
+    "delay": 0.25,
+    "phases": {"flood": 0.9091},
+    "entry": [0.572, 0.0925],
+    "exit": [0.5, 0.27],
+    "gravity": 0.8,
+    "speed_mul": 1.0
+   },
+   "camera": [
+    {"t": 0.2, "x": 0.5, "y": 0.3125, "zoom": 1.6}
+   ]
+  },
+  {
+   "id": "S03",
+   "name": "Throne",
+   "duration": 6.0,
+   "handheld": 0.8,
+   "desc": "Ink pools under the new king's crown, floods the throne and shows the shadow behind it",
+   "panel": {
+    "id": "throne",
+    "delay": 1.2,
+    "phases": {"breach": 0.0833, "flood": 0.4583, "blink": 0.1042, "recede": 0.2708},
+    "entry": [0.757, 0.158],
+    "exit": [0.925, 0.262],
+    "speed_mul": 1.0
+   },
+   "camera": [
+    {"t": 0.3, "x": 0.5, "y": 0.25, "zoom": 2.0}
+   ]
+  },
+  {
+   "id": "S04",
+   "name": "Mousetrap",
+   "duration": 4.5,
+   "handheld": 0.9,
+   "desc": "Down the right column into the bed; it spreads across the sheets from the sleeper's ear",
+   "panel": {
+    "id": "mousetrap",
+    "delay": 0.6,
+    "phases": {"breach": 0.0769, "flood": 0.4103, "blink": 0.1026, "recede": 0.3077},
+    "entry": [0.79, 0.425],
+    "exit": [0.615, 0.47],
+    "speed_mul": 1.0
+   },
+   "camera": [
+    {"t": 0.3, "x": 0.5, "y": 0.392, "zoom": 1.5}
+   ]
+  },
+  {
+   "id": "S05",
+   "name": "Letter",
+   "duration": 3.5,
+   "handheld": 0.9,
+   "desc": "It enters through the letter: the page blackens first, then both men",
+   "panel": {
+    "id": "rg_letter",
+    "delay": 0.4,
+    "phases": {"breach": 0.0968, "flood": 0.3871, "blink": 0.0968, "recede": 0.3226},
+    "entry": [0.433, 0.383],
+    "exit": [0.32, 0.47],
+    "speed_mul": 1.0,
+    "entry_object": [
+     [[0.406, 0.378], [0.433, 0.383], [0.46, 0.389]]
+    ]
+   },
+   "camera": [
+    {"t": 0.2, "x": 0.5, "y": 0.3918, "zoom": 1.5}
+   ]
+  },
+  {
+   "id": "S06",
+   "name": "Antic",
+   "duration": 3.5,
+   "handheld": 0.9,
+   "desc": "It rises out of Hamlet's own shadow; even the watcher is touched",
+   "panel": {
+    "id": "antic",
+    "delay": 0.4,
+    "phases": {"breach": 0.0968, "flood": 0.3871, "blink": 0.0968, "recede": 0.2903},
+    "entry": [0.155, 0.478],
+    "exit": [0.075, 0.47],
+    "speed_mul": 1.0,
+    "entry_object": [
+     [[0.11, 0.479], [0.155, 0.48], [0.2, 0.479]]
+    ]
+   },
+   "camera": [
+    {"t": 0.2, "x": 0.5, "y": 0.3919, "zoom": 1.5}
+   ]
+  },
+  {
+   "id": "S07",
+   "name": "Arras",
+   "duration": 4.5,
+   "handheld": 1.0,
+   "desc": "It seeps from behind the curtain, along the hem where the feet show",
+   "panel": {
+    "id": "arras",
+    "delay": 0.6,
+    "phases": {"breach": 0.0897, "flood": 0.4103, "blink": 0.1026, "recede": 0.2949},
+    "entry": [0.282, 0.692],
+    "exit": [0.335, 0.6],
+    "speed_mul": 1.0,
+    "entry_object": [
+     [[0.215, 0.69], [0.25, 0.692], [0.29, 0.693], [0.335, 0.69]]
+    ]
+   },
+   "camera": [
+    {"t": 0.3, "x": 0.5, "y": 0.6092, "zoom": 1.8}
+   ]
+  },
+  {
+   "id": "S08",
+   "name": "Ophelia",
+   "duration": 6.0,
+   "handheld": 0.6,
+   "desc": "Half speed: the flood follows her flowers before it reaches her, and drains slowly like water",
+   "panel": {
+    "id": "ophelia",
+    "delay": 0.6,
+    "phases": {"breach": 0.0926, "flood": 0.4444, "blink": 0.1111, "recede": 0.2963},
+    "entry": [0.42, 0.615],
+    "exit": [0.625, 0.6],
+    "speed_mul": 0.5,
+    "entry_object": [
+     [[0.405, 0.6], [0.42, 0.615], [0.44, 0.625]]
+    ]
+   },
+   "camera": [
+    {"t": 0.2, "x": 0.5, "y": 0.6092, "zoom": 1.6},
+    {"t": 5.8, "x": 0.5, "y": 0.6092, "zoom": 2.4}
+   ]
+  },
+  {
+   "id": "S09",
+   "name": "Grave",
+   "duration": 4.5,
+   "handheld": 0.9,
+   "desc": "Ink pours down into the open grave and rises again around the skull",
+   "panel": {
+    "id": "grave",
+    "delay": 0.5,
+    "phases": {"breach": 0.075, "flood": 0.4, "blink": 0.1, "recede": 0.325},
+    "entry": [0.75, 0.535],
+    "exit": [0.925, 0.7],
+    "speed_mul": 1.0,
+    "gravity": 0.7
+   },
+   "camera": [
+    {"t": 0.3, "x": 0.5, "y": 0.6097, "zoom": 1.8}
+   ]
+  },
+  {
+   "id": "S10",
+   "name": "River",
+   "duration": 4.0,
+   "handheld": 0.8,
+   "desc": "It drops into the water and swims right to left; the reveal follows its wake",
+   "panel": {
+    "id": "river",
+    "delay": 0.4,
+    "phases": {"breach": 0.0556, "flood": 0.4444, "blink": 0.0833, "recede": 0.3056},
+    "entry": [0.925, 0.737],
+    "exit": [0.075, 0.737],
+    "speed_mul": 1.6
+   },
+   "camera": [
+    {"t": 0.2, "x": 0.5, "y": 0.5833, "zoom": 1.2},
+    {"t": 3.8, "x": 0.5, "y": 0.5833, "zoom": 1.2}
+   ]
+  },
+  {
+   "id": "S11",
+   "name": "Duel",
+   "duration": 4.0,
+   "handheld": 1.0,
+   "desc": "It runs along both poisoned blades, then floods outward from where they cross",
+   "panel": {
+    "id": "duel",
+    "delay": 0.4,
+    "phases": {"breach": 0.0833, "flood": 0.3889, "blink": 0.0833, "recede": 0.3333},
+    "entry": [0.2025, 0.8175],
+    "exit": [0.335, 0.87],
+    "speed_mul": 1.0,
+    "entry_object": [
+     [[0.166, 0.79], [0.22, 0.8375]],
+     [[0.246, 0.791], [0.188, 0.84]]
+    ]
+   },
+   "camera": [
+    {"t": 0.3, "x": 0.5, "y": 0.7222, "zoom": 1.8}
+   ]
+  },
+  {
+   "id": "S12",
+   "name": "Cup",
+   "duration": 4.5,
+   "handheld": 0.9,
+   "desc": "It rises out of the cup like a drink being poured, then floods down over the table and Gertrude",
+   "panel": {
+    "id": "cup",
+    "delay": 0.5,
+    "phases": {"breach": 0.1, "flood": 0.375, "blink": 0.1, "recede": 0.325},
+    "entry": [0.525, 0.812],
+    "exit": [0.625, 0.87],
+    "speed_mul": 1.0,
+    "gravity": 0.5
+   },
+   "camera": [
+    {"t": 0.2, "x": 0.5, "y": 0.75, "zoom": 2.0},
+    {"t": 4.3, "x": 0.5, "y": 0.8, "zoom": 2.5}
+   ]
+  },
+  {
+   "id": "S13",
+   "name": "Fortinbras",
+   "duration": 5.5,
+   "handheld": 0.8,
+   "desc": "It coils around the throne; the crown topples; the flood reveals the bodies, and it settles",
+   "panel": {
+    "id": "fortinbras",
+    "delay": 0.6,
+    "phases": {"breach": 0.0612, "flood": 0.3673, "blink": 0.102, "recede": 0.2857},
+    "entry": [0.79, 0.88],
+    "exit": [0.8, 0.935],
+    "speed_mul": 1.0
+   },
+   "props": [
+    {
+     "kind": "crown",
+     "clip": "topple",
+     "t": 0.5,
+     "at": [0.791497, 0.823356],
+     "size": 0.036,
+     "floor": 0.945649,
+     "dir": 1,
+     "roll": 0.085
+    }
+   ],
+   "camera": [
+    {"t": 0.3, "x": 0.5, "y": 0.75, "zoom": 2.0},
+    {"t": 5.3, "x": 0.5, "y": 0.5, "zoom": 1.0}
+   ]
+  },
+  {
+   "id": "S14",
+   "name": "Banner",
+   "duration": 5.5,
+   "handheld": 0.5,
+   "silence": true,
+   "desc": "The gold banner covers the rot without uprooting it; silence from here on",
+   "camera": [
+    {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 1.0}
+   ]
+  },
+  {
+   "id": "S15",
+   "name": "Spill",
+   "duration": 4.0,
+   "handheld": 0.6,
+   "desc": "Weeds and the Serpent's tail slide off the bottom edge onto the desk",
+   "camera": [
+    {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 1.0},
+    {"t": 3.8, "x": 0.5, "y": 0.5, "zoom": 0.85}
+   ]
+  },
+  {
+   "id": "S16",
+   "name": "Hold",
+   "duration": 6.0,
+   "handheld": 0.0,
+   "hold": true,
+   "desc": "Total stillness and silence until a key is pressed",
+   "camera": [
+    {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 0.85}
+   ]
+  }
+ ]
+}

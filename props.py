@@ -173,6 +173,8 @@ class Vial(Prop):
         return self.t0, self.t_impact + s_after(self.spec)
 
     def seeds(self):
+        if self.spec.get("seed", True) is False:
+            return []
         x, y = self.spec["ear"]
         return [({"x": x, "y": y, "speed": self.spec.get("bloom_speed", 0.025), "radius": self.spec.get("bloom", 0.012),
                   "provisional": True}, self.t_impact)]

@@ -265,7 +265,7 @@ def main():
         src.cap.set(cv2.CAP_PROP_POS_MSEC, args.start * 1000.0)
     t0 = time.perf_counter()
     held = None
-    hold = tl.at("B21") if "B21" in tl.ids else tl.end
+    hold = tl.hold_t
     for k in range(n):
         t = args.start + k / args.fps
         frame, H = src.get(t)

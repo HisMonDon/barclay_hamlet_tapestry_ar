@@ -121,15 +121,17 @@ def main():
     frame, final_frame = None, None
     debug = args.debug or cfg.get("debug", {}).get("hud", False)
     t, playing, virtual = 0.0, True, True
-    hold = timeline.at("B21") if "B21" in timeline.ids else timeline.end
+    hold = timeline.hold_t
     last = time.perf_counter()
     notice = ""
+    fps = 0.0
     try:
         while True:
             now = time.perf_counter()
             ready = using_backup or renderer.tracker.H is not None
             if playing and ready:
                 t = min(timeline.end, t + now - last)
+            fps = 0.9 * fps + 0.1 / max(1e-3, now - last)
             last = now
             frame, connected = camera.latest()
             locked = False
@@ -160,6 +162,8 @@ def main():
                 controls.status, rebuild.error = f"Quality switch failed: {rebuild.error}", None
             controls.draw(out, t, playing, [f"Building {rebuild.name} preset..."] if rebuild.busy else [])
             lines = []
+            if debug and locked and not using_backup:
+                out = renderer.comp.debug(out)
             if debug:
                 if not connected and not using_backup:
                     lines.append("Camera reconnecting; retaining last frame")
@@ -169,7 +173,7 @@ def main():
                     lines.append("Audio: " + audio.error)
                 if audio.soundtrack.warnings:
                     lines.append(audio.soundtrack.warnings[-1])
-                lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s  {controls.tone}  {quality}"
+                lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s  {fps:4.1f} fps  {controls.tone}  {quality}"
                              + ("  REVEAL CHECK" if renderer.comp.force_reveal else "")
                              + ("  building " + rebuild.name if rebuild.busy else "") + ("  " + notice if notice else ""))
             if lines:

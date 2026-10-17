@@ -57,11 +57,16 @@ class Compositor:
         self.source_artwork = None
         self.source_artwork_inv = None
         self.reveal_art = None
+        self.reveal_bgr = None
         self.reveal_inv = None
         self.force_reveal = False
+        self.last = None
         art = getattr(scene, "reveal_art", None)
         if art is not None:
             self.set_reveal_art(art)
+        rv = getattr(scene, "reveal", None)
+        self.rev_inv = np.linalg.inv(rv.canvas.to_tapestry()) if rv is not None else None
+        self.glow_col = tuple(float(x) for x in rv.ghost_light * rv.p.get("ghost_glow", 0.75)) + (0.0,) if rv is not None else None
 
     def set_source_artwork(self, image):
         self.source_artwork = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
@@ -69,7 +74,54 @@ class Compositor:
 
     def set_reveal_art(self, image):
         self.reveal_art = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+        self.reveal_bgr = image
         self.reveal_inv = np.diag([image.shape[1] / self.tw, image.shape[0] / self.th, 1.0])
+
+    def _reveal(self, out, rv, Mt, size):
+        w, h = size
+        Mr = self.rev_inv @ Mt
+        roi = self._roi(rv["box"], Mr, w, h)
+        if roi is None:
+            return out
+        x0, y0, x1, y1 = roi
+        part = out[y0:y1, x0:x1]
+        R = self._warp_roi(rv["R"], Mr, roi, 0)
+        if int(R.max()) > 0:
+            art = self._warp_roi(self.reveal_bgr, self.reveal_inv @ Mt, roi, (0, 0, 0))
+            R3 = cv2.merge([R, R, R])
+            part = cv2.add(cv2.multiply(part, cv2.bitwise_not(R3), scale=1 / 255), cv2.multiply(art, R3, scale=1 / 255))
+        part = cv2.multiply(part, self._warp_roi(rv["mult"], Mr, roi, (255, 255, 255)), scale=1 / 255)
+        if rv.get("glow") is not None:
+            g = self._warp_roi(rv["glow"], Mr, roi, 0)
+            part = cv2.add(part, cv2.multiply(cv2.merge([g, g, g]), self.glow_col, scale=1 / 255))
+        out[y0:y1, x0:x1] = part
+        return out
+
+    def debug(self, out):
+        rv = getattr(self.scene, "reveal", None)
+        if self.last is None or rv is None:
+            return out
+        H, M, t = self.last
+        Mt = np.linalg.inv(H) @ M
+        size = (out.shape[1], out.shape[0])
+        heat = rv.heat(t)
+        if heat is not None:
+            img = cv2.warpPerspective(heat, self.rev_inv @ Mt, size, flags=INV, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+            a = img[..., 3]
+            out = cv2.add(cv2.multiply(out, cv2.merge([cv2.bitwise_not(a)] * 3), scale=1 / 255),
+                          cv2.multiply(img[..., :3], cv2.merge([a] * 3), scale=1 / 255))
+        P = np.linalg.inv(Mt)
+        for x in range(len(rv.panels)):
+            panel = rv.panels[x]
+            phase, p = rv.phase(panel, t)
+            pts = cv2.perspectiveTransform(np.float64([panel["geo"]["polygon"]]) * [self.tw, self.th], P)[0]
+            col = (90, 90, 90) if phase == "dormant" else (80, 220, 255) if phase != "settled" else (120, 200, 120)
+            cv2.polylines(out, [np.round(pts).astype(np.int32)], True, col, 1, cv2.LINE_AA)
+            org = (int(pts[:, 0].min()) + 4, int(pts[:, 1].min()) + 14)
+            label = panel["id"] + ("" if phase in ("dormant", "settled") else f" {phase} {p:.2f}")
+            cv2.putText(out, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(out, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.42, col, 1, cv2.LINE_AA)
+        return out
 
     @staticmethod
     def _paint(out, art, M, size):
@@ -135,6 +187,8 @@ class Compositor:
             out = self._paint(out, self.source_artwork, self.source_artwork_inv @ Mt, (w, h))
         if self.force_reveal and self.reveal_art is not None:
             out = self._paint(out, self.reveal_art, self.reveal_inv @ Mt, (w, h))
+        elif extra and extra.get("reveal") is not None and self.reveal_bgr is not None:
+            out = self._reveal(out, extra["reveal"], Mt, (w, h))
         ink = cv2.warpPerspective(mult, self.mult_inv @ Mt, (w, h), flags=INV,
                                   borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
         out = cv2.multiply(out, ink, scale=1.0 / 255.0)
@@ -195,8 +249,8 @@ class Compositor:
         if H is None:
             return self.fit(frame)
         M = self.view(t, H, frame.shape, virtual)
-        hold = self.timeline.starts[self.timeline.ids["B21"]] if "B21" in self.timeline.ids else self.timeline.end
-        tt = min(t, hold)
+        tt = min(t, self.timeline.hold_t)
+        self.last = (H, M, tt)
         work_w, work_h = self.work
         M = M @ np.diag([self.ow / work_w, self.oh / work_h, 1.0])
         layers = self.scene.layers(tt)

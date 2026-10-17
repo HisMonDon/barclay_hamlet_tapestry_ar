@@ -5,7 +5,7 @@ import props as propmod
 from banner import Weave
 from config import ROOT, resolve
 from ink import Canvas, InkEngine
-from reveal import load_art
+from reveal import RevealEngine, load_art
 from weeds import WeedEngine
 
 
@@ -30,6 +30,11 @@ class Scene:
         self.reveal_art = load_art(cfg)
         cache = cfg.get("cache_dir")
         cache = (ROOT / cache) if cache else None
+        self.reveal = None
+        if cfg.get("reveal"):
+            if self.reveal_art is None:
+                raise ValueError("This beat file needs the reveal art: run python -m tools.align_layers")
+            self.reveal = RevealEngine(cfg, timeline, self.reveal_art, cache)
         self.over_canvas = Canvas(self.tw, self.th, cfg.get("overlay", {}).get("scale", 1.0), margin)
         self.ctx = propmod.Ctx(self.tw, self.th, self.over_canvas)
         self.ctx.splash = dict(cfg.get("splash", {}), on=cfg.get("splash", {}).get("on", True) and cfg.get("fx", {}).get("splash", True))
@@ -120,6 +125,9 @@ class Scene:
             out += p.cues()
         return out
 
+    def sound_events(self):
+        return self.reveal.sound_events() if self.reveal is not None else []
+
     def layers(self, t):
         if self._cache_t != t:
             self._cache = (self.ink.layer(t), self.overlay(t))
@@ -153,4 +161,6 @@ class Scene:
             ex["shade"] = (shade, we.soft_matrix, (bx[0] / k - g, bx[1] / k - g, bx[2] / k + g, bx[3] / k + g))
         if self.over_box is not None:
             ex["over_box"] = self.over_box
+        if self.reveal is not None:
+            ex["reveal"] = self.reveal.layers(t)
         return ex

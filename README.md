@@ -2,7 +2,9 @@
 
 A camera tracks four ArUco markers around a hand-drawn Hamlet tapestry. Ink follows the corruption through the play, embroidered weeds emerge from soaked ink, and a gold banner covers the darkness without removing it. At the end, weeds cross onto the desk, the view opens to the whole camera frame, and the image holds in silence.
 
-The default `beats_tapestry.json` uses the latest supplied 1000x1573 artwork in `assets/hamlet_tapestry.png`, with B01-B21, 75 seconds and camera keys for every beat. Panel regions, effect anchors and close-ups are mapped to this image, including the clean red-and-blue throne scene. The previous supplied image is preserved in `assets/hamlet_tapestry_previous.png`; the original `beats.json`, schematic `beats_v2.json` and `assets/reference_tapestry.png` are also preserved.
+The default show is now `beats_serpent.json`, "The Serpent Beneath" from `REVEAL_SPEC.md`: an ink creature crawls panel to panel and, wherever it passes, the printed tapestry gives way to the aligned corrupt art underneath. It runs S00-S16 over 77 seconds on `assets/clean_ref.png`; see **Reveal show** below. The previous show is still available with `--beats beats_tapestry.json`.
+
+`beats_tapestry.json` uses the earlier supplied 1000x1573 artwork in `assets/hamlet_tapestry.png`, with B01-B21, 75 seconds and camera keys for every beat. Panel regions, effect anchors and close-ups are mapped to this image, including the clean red-and-blue throne scene. The previous supplied image is preserved in `assets/hamlet_tapestry_previous.png`; the original `beats.json`, schematic `beats_v2.json` and `assets/reference_tapestry.png` are also preserved.
 
 ## Install and run on Windows
 
@@ -24,7 +26,7 @@ Pick portrait `tabloid` or `letter` in `config.json` and regenerate `markers.pdf
 | R | Reveal check: show the whole corrupt layer on the paper |
 | Shift+R / Home | Restart and play |
 | V | Virtual camera / full composited camera frame |
-| D | Operator debug display, including camera/audio status |
+| D | Operator debug display: camera/audio status, fps, and in the reveal show the panel outlines, phases and the active arrival heatmap |
 | C | Open / close the operator controls window |
 | T | Cycle the ink tone (Iron gall, Lamp black, Oxblood) |
 | P | Switch quality preset (live / render), rebuilt in the background |
@@ -34,7 +36,7 @@ Pick portrait `tabloid` or `letter` in `config.json` and regenerate `markers.pdf
 
 The controls window (`--controls`, or C) is a separate window for the laptop screen, so the projector output stays clean. It shows a preview, a scrubber with beat ticks (click or drag to seek), the beat list (click to jump), play/restart/step buttons, the three ink tones and the two quality presets. A preset switch builds the new renderer on a background thread while the show keeps running; the first build of `render` can take a while until its arrival field is cached in `.cache/`. `--quality render` starts in the render preset. Large timeline jumps rebuild the dense embroidery in its fixed drawing order and can take several seconds; the pre-rendered backup seeks immediately.
 
-B21 freezes the image and silences audio from 65 seconds. It remains on screen after 75 seconds until a control is used. Operator text is hidden unless debug is enabled.
+The beat flagged `"hold": true` (S16 in the reveal show, B21 in the earlier show) freezes the image; audio falls silent from the beat flagged `"silence": true` (the S14 banner), or from `sound.silence_from`. The image remains on screen at the end until a control is used. Operator text is hidden unless debug is enabled.
 
 ## Render the backup and review it
 
@@ -82,6 +84,19 @@ Each preset has an `fx` block in `config.json`. `live` turns off the costlier pa
 The tool fits a SIFT + RANSAC homography from the corrupt art to the clean art, refines each panel with ECC, and keeps a panel's refinement only when it lowers that panel's measured line-structure residual. It writes `assets/corrupt_aligned.png`, `assets/clean_ref.png`, `assets/panels.json` (seeded from the beat file's regions on the first run; edit it or pass `--reseed`) and `assets/assets.hash`, plus `review/align_check.jpg` (checkerboard, aligned edges, unaligned edges) and `review/align_report.json`. Figures that were redrawn in the corrupt art read as a higher residual; check those panels in the review image.
 
 Print `clean_ref.png` at 100% scale, centred, at the size the tool reports, and copy its `print_margin_mm` line into `config.json`. Markers still sit `gap_mm` beyond the sheet edges. Press **R** with the board tracked to show the whole corrupt layer on the paper as an alignment check; `render.py --reveal` renders the same view.
+
+## Reveal show
+
+`reveal.py` turns each panel beat into a reveal. Per panel it computes, once and cached in `.cache/reveal_*.npz`, a geodesic arrival map from the entry (or `entry_object` polylines) over a cost that is cheaper along the corrupt art's drawn lines, and a second map from the exit for draining. Each frame thresholds those maps through lookup tables, so every frame is a pure function of `t`: pause, stepping, restart, scrubbing and the backup render all agree.
+
+A panel beat carries a `panel` block:
+
+```json
+"panel": {"id": "garden", "delay": 1.5, "phases": {"breach": 0.15, "flood": 0.4, "blink": 0.09, "recede": 0.29},
+          "entry": [0.144, 0.202], "exit": [0.33, 0.11], "speed_mul": 1.0, "gravity": 0.0, "entry_object": [[[x, y], ...]]}
+```
+
+`delay` is seconds from the beat start; `phases` are fractions of the rest of the beat, and whatever remains is SETTLED. During FLOOD the ink front leads the reveal by at least 0.15 s and the reveal finishes under the ink before RECEDE drains toward the exit, so no moving edge between clean and corrupt is ever uncovered. Residue veins stay along the drain channel and creep in from the corners. `"mode": "light"` (the ghost) reveals with a cool light wipe and no ink. Panel outlines come from `assets/panels.json`. Ink colours, widths, vein and cost settings live in the beat file's `reveal` block; `quality.<preset>.reveal_width` sets the mask resolution (550 live, 1100 render).
 
 ## Remap the real drawing
 

@@ -3,12 +3,14 @@ import math
 import cv2
 import numpy as np
 
+from timeline import hold_time
+
 
 class Atmosphere:
     def __init__(self, cfg, size):
         self.p = cfg.get("atmosphere", {})
         self.w, self.h = size
-        self.hold = sum(x["duration"] for x in cfg["beats"][:next((k for k, x in enumerate(cfg["beats"]) if x.get("id") == "B21"), len(cfg["beats"]))])
+        self.hold = hold_time(cfg["beats"])
         flicker = self.p.get("flicker", {})
         rng = np.random.default_rng(flicker.get("seed", 3))
         self.phases = rng.uniform(0, 2 * np.pi, 3)

@@ -54,6 +54,7 @@ def load(beats_path=None, config_path=CONFIG, paper=None, quality="live"):
         cfg["ink"]["resolution"] = q["ink_resolution"]
     cfg["overlay"]["scale"] = q.get("overlay_scale", 1.0)
     cfg["output_scale"] = q.get("output_scale", 1.0)
+    cfg["reveal_width"] = q.get("reveal_width", 550)
     cfg["fx"] = {**FX, **q.get("fx", {})}
     cfg["beats_path"] = str(beats_path)
     cfg["root"] = str(ROOT)

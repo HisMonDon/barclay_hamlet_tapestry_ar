@@ -8,7 +8,7 @@
  "gap_mm": 8,
  "tapestry_width": 960,
  "overlay_margin": 0.8,
- "beats": "beats_tapestry.json",
+ "beats": "beats_serpent.json",
  "source_mode": "print",
  "print_margin_mm": [0, 0, 0, 0],
  "assets": {
@@ -25,6 +25,7 @@
    "overlay_scale": 0.7,
    "output_scale": 1.0,
    "composite_scale": 0.55,
+   "reveal_width": 550,
    "direct_scan": false,
    "fx": {"sheen_glow": false, "stitch_detail": false, "dof_levels": 1, "dof_radial": false, "bloom": false}
   },
@@ -33,6 +34,7 @@
    "overlay_scale": 1.6,
    "output_scale": 1.0,
    "composite_scale": 1.0,
+   "reveal_width": 1100,
    "direct_scan": true,
    "video_crf": 16,
    "video_preset": "medium",
@@ -64,7 +66,7 @@
    "seed": 19,
    "edge_s": 0.008,
    "crackle_density": 9,
-   "durations": {"crackle": 4.0, "drip": 0.6, "seep": 6.0, "creak": 6.0, "shuttle": 0.3}
+   "durations": {"crackle": 4.0, "drip": 0.6, "seep": 6.0, "creak": 6.0, "shuttle": 0.3, "inhale": 0.9}
   },
   "export_codec": "alac"
  },
@@ -77,7 +79,7 @@
   "read_timeout_ms": 1500,
   "open_timeout_ms": 2000
  },
- "backup_video": "renders/backup_tapestry.mp4",
+ "backup_video": "renders/backup_serpent.mp4",
  "cache_dir": ".cache",
  "debug": {"hud": false},
  "editor": {

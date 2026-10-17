@@ -628,23 +628,97 @@ def reveal_checks(cfg):
     check("missing reveal art disables the check instead of failing", load_art(missing) is None)
 
 
+def serpent_checks(cfg):
+    tl = Timeline(cfg)
+    check("serpent sheet runs 77 s over 17 beats", abs(tl.end - 77.0) < 1e-6 and len(tl.beats) == 17, f"{tl.end} s, {len(tl.beats)} beats")
+    check("the hold comes from its beat flag", abs(tl.hold_t - tl.at("S16")) < 1e-9, f"{tl.hold_t}")
+    renderer = Renderer(cfg)
+    sc = renderer.scene
+    rv = sc.reveal
+    order = ["garden", "ghost", "throne", "mousetrap", "rg_letter", "antic", "arras", "ophelia", "grave", "river", "duel", "cup", "fortinbras"]
+    check("panels are visited boustrophedon", [x["id"] for x in rv.panels] == order, " ".join(x["id"] for x in rv.panels))
+    interior = np.zeros((rv.h, rv.w), bool)
+    ghost = np.zeros_like(interior)
+    for x in range(len(rv.panels)):
+        g = rv.geo[x]
+        r0, r1, c0, c1 = g["roi"]
+        interior[r0:r1, c0:c1] |= g["own"] & (g["mask8"] > 250)
+        if rv.panels[x]["light"]:
+            ghost[r0:r1, c0:c1] |= g["own"]
+    full = int(0.9 * rv.alpha * 255)
+    prev, dropped, naked, inked = None, 0, 0, 0
+    for x in np.arange(0.0, tl.end + 1e-6, 0.05):
+        L = rv.layers(float(x))
+        R = L["R"]
+        G = L["glow"] if L["glow"] is not None else np.zeros_like(R)
+        naked += int(np.sum(interior & (R > 5) & (R < 250) & (rv.I8 < full) & (G < 229)))
+        inked += int(np.sum(ghost & ((rv.I8 > 0) | (rv.D8 > 0))))
+        if prev is not None:
+            dropped += int(np.sum(R.astype(np.int16) < prev.astype(np.int16) - 1))
+        prev = R.copy()
+    check("revealed pixels never revert", dropped == 0, f"{dropped} pixel drops")
+    check("every moving reveal edge is under ink or light", naked == 0, f"{naked} uncovered pixels")
+    check("ink never touches the ghost panel", inked == 0, f"{inked} inked pixels")
+    check("every panel is revealed by the hold", bool(np.all(rv.layers(tl.hold_t)["R"][interior] >= 250)))
+    late = [x["id"] for x in rv.panels if rv.phase(x, tl.starts[tl.ids[x["beat"]] + 1])[0] != "settled"]
+    check("stepping to the next beat shows each finished panel settled", not late, " ".join(late))
+
+    img, S = scene(cfg)
+    Ht = truth(cfg)
+    frame = cv2.warpPerspective(img, Ht @ np.linalg.inv(S), FRAME, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=DESK)
+    a = renderer.frame(frame, Ht, 41.7)
+    renderer.frame(frame, Ht, 70.0)
+    renderer.frame(frame, Ht, 3.0)
+    b = renderer.frame(frame, Ht, 41.7)
+    c = Renderer(cfg).frame(frame, Ht, 41.7)
+    check("the same t gives the same frame after seeking or a fresh start", np.array_equal(a, b) and np.array_equal(a, c))
+    dbg = renderer.comp.debug(renderer.frame(frame, Ht, 4.9).copy())
+    check("the debug overlay draws panels and the arrival heatmap", dbg.shape == a.shape and rv.heat(4.9) is not None)
+
+    comp = renderer.comp
+    garden = rv.panels[0]
+    x0, y0, x1, y1 = garden["geo"]["rect"]
+    pts = [to_frame(Ht, cfg, x0 + (x1 - x0) * x[0], y0 + (y1 - y0) * x[1]) for x in ((0.35, 0.4), (0.5, 0.55), (0.65, 0.7), (0.45, 0.8))]
+    art = cv2.warpPerspective(comp.reveal_bgr, Ht @ np.linalg.inv(comp.reveal_inv), FRAME, flags=cv2.INTER_LINEAR)
+    before = comp.compose(frame, Ht, np.eye(3), FRAME, *sc.layers(1.0), extra=sc.extras(1.0))
+    t_after = garden["times"][4] + 3.0
+    after = comp.compose(frame, Ht, np.eye(3), FRAME, *sc.layers(t_after), extra=sc.extras(t_after))
+    clean = max(float(np.abs(sample(before, x) - PAPER).max()) for x in pts)
+    shown = float(np.median([np.abs(sample(after, x) - sample(art, x)).max() for x in pts]))
+    check("panels show the paper before their reveal", clean < 6, f"max diff {clean:.1f}")
+    check("revealed panels show the aligned corrupt art", shown < 10, f"median diff {shown:.1f}")
+
+    track = Soundtrack(cfg, tl, sc)
+    drips = sorted(x[1] for x in track.events if x[0] == "drip")
+    inhales = sorted(x[1] for x in track.events if x[0] == "inhale")
+    floods = [x for x in rv.panels if not x["light"]]
+    check("a drip sounds at every breach", np.allclose(drips, sorted(x["times"][0] for x in floods)), f"{len(drips)} drips")
+    check("an inhale sounds at every blink", np.allclose(inhales, sorted(x["times"][2] for x in floods)), f"{len(inhales)} inhales")
+    banner = tl.at("S14")
+    check("silence from the banner beat on", abs(track.silence - banner) < 1e-9 and np.count_nonzero(track.samples[round(banner * track.rate):]) == 0)
+    wipe = rv.panels[1]["times"]
+    check("nothing sounds during the ghost light-wipe", np.count_nonzero(track.samples[round(wipe[0] * track.rate):round(wipe[4] * track.rate)]) == 0)
+
+
 def main():
     default = load()
     check("default paper is tabloid", default["board"]["paper"] == "tabloid", default["board"]["paper"])
-    check("app defaults to the supplied artwork mapping", Path(default["beats_path"]).name == "beats_tapestry.json", default["beats_path"])
-    tl = Timeline(default)
+    check("app defaults to the serpent reveal", Path(default["beats_path"]).name == "beats_serpent.json", default["beats_path"])
+    tapestry = load(str(ROOT / "beats_tapestry.json"))
+    tl = Timeline(tapestry)
     check("tapestry beat sheet runs 75 s", abs(tl.end - 75.0) < 1e-6, f"{tl.end}")
     check("beat sheet has B01..B21", list(tl.ids) == [f"B{k:02d}" for k in range(1, 22)])
-    mapped = [s for b in default["beats"] for k in ("seeds", "camera") for s in b.get(k, [])]
-    mapped.extend(default["regions"].values())
+    mapped = [s for b in tapestry["beats"] for k in ("seeds", "camera") for s in b.get(k, [])]
+    mapped.extend(tapestry["regions"].values())
     check("mapped coordinates retain their calibration status", all(isinstance(s.get("provisional"), bool) for s in mapped))
-    artwork_checks(default)
-    system_checks(default)
+    artwork_checks(tapestry)
+    system_checks(tapestry)
     margin_checks()
-    reveal_checks(default)
-    alignment_checks(default)
-    run(default)
-    run(load(paper="letter"))
+    reveal_checks(tapestry)
+    alignment_checks(tapestry)
+    serpent_checks(default)
+    run(tapestry)
+    run(load(str(ROOT / "beats_tapestry.json"), paper="letter"))
     old = load(str(ROOT / "beats.json"))
     r = Renderer(old)
     check("old beats.json still loads", r.timeline.end > 0)
