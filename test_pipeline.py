@@ -531,20 +531,301 @@ def system_checks(cfg):
         camera.close()
 
 
+def alignment_checks(cfg):
+    from fields import fractal_noise, raster
+    from tools.align_layers import align, seed_panels
+    clean = cv2.imread(str(ROOT / "assets" / "hamlet_tapestry.png"))
+    h, w = clean.shape[:2]
+    panels = seed_panels(cfg["regions"], clean, clean)["panels"]
+    rng = np.random.default_rng(4)
+    drift = {x["id"]: rng.uniform(2.0, 3.0, 2) * rng.choice([-1.0, 1.0], 2) for x in panels}
+    drifted = clean.copy()
+    for x in panels:
+        dx, dy = drift[x["id"]]
+        moved = cv2.warpAffine(clean, np.float64([[1, 0, dx], [0, 1, dy]]), (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        inside = raster(x["polygon"], w, h) > 0.5
+        drifted[inside] = moved[inside]
+    hsv = cv2.cvtColor(drifted, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[..., 1] *= 0.55
+    hsv[..., 2] *= 0.8
+    rot = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
+    rot = cv2.addWeighted(rot, 0.85, np.full_like(rot, (40, 90, 30)), 0.15, 0)
+    rot[fractal_noise(w, h, 12, 3, 0.5, 5) > 0.55] //= 2
+    c, s = 1.012 * np.cos(np.radians(0.5)), 1.012 * np.sin(np.radians(0.5))
+    G = np.array([[c, -s, 9.0], [s, c, -6.0], [0, 0, 1]])
+    corrupt = cv2.warpPerspective(rot, G, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    aligned, report, maps = align(clean, corrupt, panels)
+    Gi = np.linalg.inv(G)
+    refined, coarse = [], []
+    for x in panels:
+        x0, y0, x1, y1 = np.array(x["rect"]) * [w, h, w, h]
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        pts = np.float64([[cx, cy], [cx - (cx - x0) / 2, cy - (cy - y0) / 2], [cx + (x1 - cx) / 2, cy - (cy - y0) / 2],
+                          [cx + (x1 - cx) / 2, cy + (y1 - cy) / 2], [cx - (cx - x0) / 2, cy + (y1 - cy) / 2]])
+        miss = lambda M: cv2.perspectiveTransform(cv2.perspectiveTransform(pts[None], M), Gi)[0] - drift[x["id"]] - pts
+        refined.append(miss(maps[x["id"]]))
+        coarse.append(miss(maps["global"]))
+    rms = lambda e: float(np.sqrt(np.mean(np.sum(np.concatenate(e) ** 2, axis=1))))
+    check("alignment recovers per-panel drift under 1 px", rms(refined) < 1.0,
+          f"RMS {rms(refined):.2f} px (global only {rms(coarse):.2f} px), {sum(x['refined'] for x in report['panels'])}/{len(panels)} panels refined")
+    check("aligned corrupt art keeps the clean art's size", aligned.shape == clean.shape)
+    big = cv2.copyMakeBorder(cv2.resize(clean, None, fx=1.25, fy=1.25, interpolation=cv2.INTER_CUBIC), 30, 30, 10, 10, cv2.BORDER_REPLICATE)
+    moved = seed_panels(cfg["regions"], clean, big)["panels"]
+    bh, bw = big.shape[:2]
+    expect = [np.array(x["rect"]) * [w, h, w, h] * 1.25 + [10, 30, 10, 30] for x in panels]
+    got = [np.array(x["rect"]) * [bw, bh, bw, bh] for x in moved]
+    err = max(float(np.abs(expect[x] - got[x]).max()) for x in range(len(panels)))
+    check("panel regions transfer onto rescaled art", err < 1.5, f"max rect error {err:.2f} px")
+
+
+def margin_checks():
+    import json
+    from config import board, read
+    raw = read(ROOT / "config.json")
+    raw["print_margin_mm"] = [6.35, 9.79, 6.35, 9.79]
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "config.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        cfg = board(path)
+    sw, sh = sorted(round(x * 25.4, 2) for x in raw["papers_in"][raw["paper"]])
+    ml, mt, mr, mb = raw["print_margin_mm"]
+    dw, dh = cfg["board"]["drawing_mm"]
+    check("print margins shrink the drawing to the printed area", abs(dw - (sw - ml - mr)) < 0.01 and abs(dh - (sh - mt - mb)) < 0.01, f"{dw} x {dh} mm")
+    layout = marker_layout(cfg)
+    sx, sy = cfg["tapestry"]["width"] / dw, cfg["tapestry"]["height"] / dh
+    sheet = {x: layout[x] / [sx, sy] + [ml, mt] for x in layout}
+    g, m = raw["gap_mm"], raw["marker_mm"]
+    want = {0: (-g - m, -g - m), 1: (sw + g, -g - m), 2: (sw + g, sh + g), 3: (-g - m, sh + g)}
+    err = max(float(np.abs(sheet[x][0] - want[x]).max()) for x in want)
+    check("markers stay gap_mm beyond the sheet edges", err < 0.01, f"max error {err:.3f} mm")
+
+
+def reveal_checks(cfg):
+    import copy
+    from types import SimpleNamespace
+    from compositor import Compositor
+    from reveal import load_art
+    img, S = scene(cfg)
+    Ht = truth(cfg)
+    frame = cv2.warpPerspective(img, Ht @ np.linalg.inv(S), FRAME, flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT, borderValue=DESK)
+    comp = Compositor(cfg, SimpleNamespace(mult_to_tapestry=lambda: np.eye(3), over_to_tapestry=lambda: np.eye(3)))
+    art = np.empty((300, 200, 3), np.uint8)
+    art[:, :100] = (200, 40, 180)
+    art[:, 100:] = (30, 160, 60)
+    comp.set_reveal_art(art)
+    clear = np.full((1, 1, 3), 255, np.uint8)
+    off = comp.compose(frame, Ht, np.eye(3), FRAME, clear, None)
+    comp.force_reveal = True
+    on = comp.compose(frame, Ht, np.eye(3), FRAME, clear, None)
+    left, right, desk = to_frame(Ht, cfg, 0.25, 0.5), to_frame(Ht, cfg, 0.75, 0.5), to_frame(Ht, cfg, -0.3, 0.5)
+    check("paper shows through with the reveal check off", np.abs(sample(off, left) - PAPER).max() < 6, str(sample(off, left).round()))
+    check("reveal check shows the corrupt layer on the paper", np.abs(sample(on, left) - (200, 40, 180)).max() < 6
+          and np.abs(sample(on, right) - (30, 160, 60)).max() < 6, f"{sample(on, left).round()} {sample(on, right).round()}")
+    check("reveal check leaves the desk alone", np.abs(sample(on, desk) - DESK).max() < 6, str(sample(on, desk).round()))
+    missing = copy.deepcopy(cfg)
+    missing["assets"]["corrupt"] = "assets/missing_corrupt_layer.png"
+    check("missing reveal art disables the check instead of failing", load_art(missing) is None)
+
+
+def realism_checks(cfg):
+    from render import Source
+    renderer = Renderer(cfg)
+    rz = renderer.comp.realism
+    tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
+    board, Hb = Source(renderer, "board", None, FRAME).get()
+    still, Hs = Source(renderer, "still", None, FRAME).get()
+
+    def lit(H, truth):
+        L = rz.measure(board if truth else still, H)["light"]
+        gh, gw = L.shape[:2]
+        ys, xs = np.mgrid[0:gh, 0:gw]
+        cam = cv2.perspectiveTransform(np.stack([(xs + 0.5) * tw / gw, (ys + 0.5) * th / gh], -1).reshape(-1, 1, 2).astype(np.float64), H).reshape(gh, gw, 2)
+        rr = ((cam[..., 0] - FRAME[0] / 2) / FRAME[0]) ** 2 + ((cam[..., 1] - FRAME[1] / 2) / FRAME[1]) ** 2
+        want = 1.04 - 0.55 * rr - 0.06 * cam[..., 0] / FRAME[0] if truth else np.ones((gh, gw))
+        return float(np.abs(L.mean(axis=2) - want)[gh // 8:-gh // 8, gw // 8:-gw // 8].mean())
+
+    err_board, err_still = lit(Hb, True), lit(Hs, False)
+    check("the lighting map recovers the camera's falloff", err_board < 0.03, f"mean error {err_board:.3f}")
+    check("the lighting map is flat under flat light", err_still < 0.02, f"mean error {err_still:.3f}")
+    rng = np.random.default_rng(0)
+    noisy = np.clip(board.astype(np.float32) + rng.normal(0, 6.0, board.shape), 0, 255).astype(np.uint8)
+    clean_sigma, noisy_sigma = rz.measure(board, Hb)["grain"], rz.measure(noisy, Hb)["grain"]
+    check("grain matching measures the camera noise", clean_sigma < 1.5 and 4.0 < noisy_sigma < 8.0, f"{clean_sigma:.2f} clean, {noisy_sigma:.2f} at sigma 6")
+    levels = [rz.measure(cv2.GaussianBlur(still, (0, 0), x) if x else still, Hs)["level"] for x in (0.0, 1.0, 2.0)]
+    check("focus matching follows the camera's softness", levels == sorted(levels) and levels[-1] > levels[0], f"levels {levels}")
+    a, b = rz.measure(board, Hb), rz.measure(board, Hb)
+    check("offline realism is a pure function of the frame", np.array_equal(a["light"], b["light"]) and a["grain"] == b["grain"] and a["level"] == b["level"])
+    check("direct scan renders skip realism", rz.measure(board, Hb, True) is None)
+    renderer.set_live(True)
+    first = rz.measure(board, Hb)["light"].mean()
+    dark = (board * 0.7).astype(np.uint8)
+    for x in range(3):
+        last = rz.measure(dark, Hb)["light"].mean()
+    step = (first - last) / max(1e-6, first * 0.3)
+    check("live lighting eases toward a change with the EMA", 0.05 < step < 0.2, f"{step:.2f} of the change after one update")
+    renderer.set_live(False)
+
+    sc = renderer.scene
+    t = 62.0
+    ramp = (0.45 + 0.55 * np.arange(FRAME[0], dtype=np.float32) / FRAME[0])[None, :, None]
+    ramped = np.clip(board * ramp, 0, 255).astype(np.uint8)
+    ext = sc.extras(t)
+    out = renderer.comp.compose(ramped, Hb, np.eye(3), FRAME, *sc.layers(t), extra=ext)
+    renderer.comp.realism = None
+    flat = renderer.comp.compose(ramped, Hb, np.eye(3), FRAME, *sc.layers(t), extra=ext)
+    renderer.comp.realism = rz
+    ratio, want = [], []
+    for x in ("arras", "grave", "antic", "mousetrap"):
+        x0, y0, x1, y1 = next(y for y in sc.reveal.panels if y["id"] == x)["geo"]["rect"]
+        p = to_frame(Hb, cfg, (x0 + x1) / 2, y0 + (y1 - y0) * 0.35)
+        ratio.append(float(sample(out, p, 3).mean() / max(1.0, sample(flat, p, 3).mean())))
+        rr = ((p[0] - FRAME[0] / 2) / FRAME[0]) ** 2 + ((p[1] - FRAME[1] / 2) / FRAME[1]) ** 2
+        want.append((1.04 - 0.55 * rr - 0.06 * p[0] / FRAME[0]) * (0.45 + 0.55 * p[0] / FRAME[0]))
+    gap = float(np.max(np.abs(np.array(ratio) - np.array(want)) / np.array(want)))
+    check("revealed art takes the paper's lighting", gap < 0.1, f"lit/unlit {np.round(ratio, 2).tolist()} vs light {np.round(want, 2).tolist()}")
+
+
+def serpent_checks(cfg):
+    cfg = dict(cfg, fx=dict(cfg["fx"], realism=False))
+    tl = Timeline(cfg)
+    check("serpent sheet runs 77 s over 17 beats", abs(tl.end - 77.0) < 1e-6 and len(tl.beats) == 17, f"{tl.end} s, {len(tl.beats)} beats")
+    check("the hold comes from its beat flag", abs(tl.hold_t - tl.at("S16")) < 1e-9, f"{tl.hold_t}")
+    renderer = Renderer(cfg)
+    sc = renderer.scene
+    rv = sc.reveal
+    order = ["garden", "ghost", "throne", "mousetrap", "rg_letter", "antic", "arras", "ophelia", "grave", "river", "duel", "cup", "fortinbras"]
+    check("panels are visited boustrophedon", [x["id"] for x in rv.panels] == order, " ".join(x["id"] for x in rv.panels))
+    interior = np.zeros((rv.h, rv.w), bool)
+    ghost = np.zeros_like(interior)
+    for x in range(len(rv.panels)):
+        g = rv.geo[x]
+        r0, r1, c0, c1 = g["roi"]
+        interior[r0:r1, c0:c1] |= g["own"] & (g["mask8"] > 250)
+        if rv.panels[x]["light"]:
+            ghost[r0:r1, c0:c1] |= g["own"]
+    full = int(0.9 * rv.alpha * 255)
+    prev, dropped, naked, inked = None, 0, 0, 0
+    for x in np.arange(0.0, tl.end + 1e-6, 0.05):
+        L = rv.layers(float(x))
+        R = L["R"]
+        naked += int(np.sum(interior & (R > 5) & (R < 250) & (rv.I8 < full) & (rv.G8 < 229)))
+        inked += int(np.sum(ghost & ((rv.I8 > 0) | (rv.D8 > 0))))
+        if rv.body is not None:
+            bx0, by0, bx1, by1 = rv.body["roi"]
+            inked += int(np.sum(ghost[by0:by1, bx0:bx1] & ((rv.body["I"] > 0) | (rv.body["D"] > 0))))
+        if prev is not None:
+            dropped += int(np.sum(R.astype(np.int16) < prev.astype(np.int16) - 1))
+        prev = R.copy()
+    check("revealed pixels never revert", dropped == 0, f"{dropped} pixel drops")
+    check("every moving reveal edge is under ink or light", naked == 0, f"{naked} uncovered pixels")
+    check("ink never touches the ghost panel", inked == 0, f"{inked} inked pixels")
+    check("every panel is revealed by the hold", bool(np.all(rv.layers(tl.hold_t)["R"][interior] >= 250)))
+    late = [x["id"] for x in rv.panels if rv.phase(x, tl.starts[tl.ids[x["beat"]] + 1])[0] != "settled"]
+    check("stepping to the next beat shows each finished panel settled", not late, " ".join(late))
+
+    img, S = scene(cfg)
+    Ht = truth(cfg)
+    frame = cv2.warpPerspective(img, Ht @ np.linalg.inv(S), FRAME, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=DESK)
+    a = renderer.frame(frame, Ht, 41.7)
+    renderer.frame(frame, Ht, 70.0)
+    renderer.frame(frame, Ht, 3.0)
+    b = renderer.frame(frame, Ht, 41.7)
+    c = Renderer(cfg).frame(frame, Ht, 41.7)
+    check("the same t gives the same frame after seeking or a fresh start", np.array_equal(a, b) and np.array_equal(a, c))
+    dbg = renderer.comp.debug(renderer.frame(frame, Ht, 4.9).copy())
+    check("the debug overlay draws panels and the arrival heatmap", dbg.shape == a.shape and rv.heat(4.9) is not None)
+
+    comp = renderer.comp
+    garden = rv.panels[0]
+    x0, y0, x1, y1 = garden["geo"]["rect"]
+    pts = [to_frame(Ht, cfg, x0 + (x1 - x0) * x[0], y0 + (y1 - y0) * x[1]) for x in ((0.35, 0.4), (0.5, 0.55), (0.65, 0.7), (0.45, 0.8))]
+    art = cv2.warpPerspective(comp.reveal_bgr, Ht @ np.linalg.inv(comp.reveal_inv), FRAME, flags=cv2.INTER_LINEAR)
+    before = comp.compose(frame, Ht, np.eye(3), FRAME, *sc.layers(1.0), extra=sc.extras(1.0))
+    t_after = garden["times"][4] + 3.0
+    after = comp.compose(frame, Ht, np.eye(3), FRAME, *sc.layers(t_after), extra=sc.extras(t_after))
+    clean = max(float(np.abs(sample(before, x) - PAPER).max()) for x in pts)
+    shown = float(np.median([np.abs(sample(after, x) - sample(art, x)).max() for x in pts]))
+    check("panels show the paper before their reveal", clean < 6, f"max diff {clean:.1f}")
+    check("revealed panels show the aligned corrupt art", shown < 10, f"median diff {shown:.1f}")
+
+    track = Soundtrack(cfg, tl, sc)
+    drips = sorted(x[1] for x in track.events if x[0] == "drip")
+    inhales = sorted(x[1] for x in track.events if x[0] == "inhale")
+    floods = [x for x in rv.panels if not x["light"]]
+    check("a drip sounds at every breach", np.allclose(drips, sorted(x["times"][0] for x in floods)), f"{len(drips)} drips")
+    check("an inhale sounds at every blink", np.allclose(inhales, sorted(x["times"][2] for x in floods)), f"{len(inhales)} inhales")
+    banner = tl.at("S14")
+    check("silence from the banner beat on", abs(track.silence - banner) < 1e-9 and np.count_nonzero(track.samples[round(banner * track.rate):]) == 0)
+    wipe = rv.panels[1]["times"]
+    check("nothing sounds during the ghost light-wipe", np.count_nonzero(track.samples[round(wipe[0] * track.rate):round(wipe[4] * track.rate)]) == 0)
+    throne = rv.panels[2]["times"]
+    moving = float(np.abs(track.samples[round(7.0 * track.rate):round(8.0 * track.rate)]).max())
+    pouring = float(np.abs(track.samples[round((throne[1] + 0.3) * track.rate):round((throne[2] - 0.2) * track.rate)]).max())
+    check("the slither sounds while the Serpent moves and stops while it pours", moving > 1e-3 and pouring < 1e-5, f"peak {moving:.4f} / {pouring:.1e}")
+    serpent_checks_motion(cfg, renderer)
+
+
+def serpent_checks_motion(cfg, renderer):
+    from render import Source
+    rv = renderer.scene.reveal
+    path = rv.serpent.path
+    worst = 0.0
+    for x in (7.4, 9.5, 11.0, 45.0):
+        st = path.state(x)
+        if not st["visible"]:
+            continue
+        body = path.at(np.linspace(st["tail"], st["head"], 80))
+        heads = np.array(list(map(lambda v: path.state(v)["head"], np.arange(x - 5.0, x + 1e-9, 1 / 1000))))
+        trail = path.at(heads)
+        d = np.sqrt(((body[:, None, :] - trail[None, :, :]) ** 2).sum(-1)).min(axis=1)
+        worst = max(worst, float(d.max()) * rv.canvas.w0)
+    check("the Serpent's body follows its head's track", worst < 0.5, f"max {worst:.3f} canvas px off the track")
+
+    tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
+    src = Source(renderer, "still", None, FRAME)
+    frame, H = src.get()
+    sc = renderer.scene
+    t = 11.0
+    extra = dict(sc.extras(t))
+    extra["reveal"] = dict(extra["reveal"], add=None)
+    out = renderer.comp.compose(frame, H, H, (tw, th), *sc.layers(t), extra=extra)
+    art = cv2.warpPerspective(frame, H, (tw, th), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+    x0, y0, x1, y1 = rv.body["roi"]
+    k = tw / rv.canvas.w0
+    mask = np.zeros((th, tw), bool)
+    big = cv2.resize(rv.body["I"], (int(round((x1 - x0) * k)), int(round((y1 - y0) * k))), interpolation=cv2.INTER_NEAREST) > 235
+    oy, ox = int(round(y0 * k)), int(round(x0 * k))
+    bh, bw = min(big.shape[0], th - oy), min(big.shape[1], tw - ox)
+    mask[oy:oy + bh, ox:ox + bw] = big[:bh, :bw]
+    mask = cv2.erode(mask.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    g_out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)[mask].astype(np.float64)
+    g_art = cv2.cvtColor(art, cv2.COLOR_BGR2GRAY)[mask].astype(np.float64)
+    corr = float(np.corrcoef(g_out, g_art)[0, 1])
+    check("the Serpent's ink lets the paper show through (multiply, not a fill)", mask.sum() > 200 and corr > 0.5 and g_out.mean() < 0.2 * g_art.mean(),
+          f"{int(mask.sum())} px, corr {corr:.2f}, {g_out.mean():.0f} vs {g_art.mean():.0f}")
+
+
 def main():
     default = load()
     check("default paper is tabloid", default["board"]["paper"] == "tabloid", default["board"]["paper"])
-    check("app defaults to the supplied artwork mapping", Path(default["beats_path"]).name == "beats_tapestry.json", default["beats_path"])
-    tl = Timeline(default)
+    check("app defaults to the serpent reveal", Path(default["beats_path"]).name == "beats_serpent.json", default["beats_path"])
+    tapestry = load(str(ROOT / "beats_tapestry.json"))
+    tl = Timeline(tapestry)
     check("tapestry beat sheet runs 75 s", abs(tl.end - 75.0) < 1e-6, f"{tl.end}")
     check("beat sheet has B01..B21", list(tl.ids) == [f"B{k:02d}" for k in range(1, 22)])
-    mapped = [s for b in default["beats"] for k in ("seeds", "camera") for s in b.get(k, [])]
-    mapped.extend(default["regions"].values())
+    mapped = [s for b in tapestry["beats"] for k in ("seeds", "camera") for s in b.get(k, [])]
+    mapped.extend(tapestry["regions"].values())
     check("mapped coordinates retain their calibration status", all(isinstance(s.get("provisional"), bool) for s in mapped))
-    artwork_checks(default)
-    system_checks(default)
-    run(default)
-    run(load(paper="letter"))
+    artwork_checks(tapestry)
+    system_checks(tapestry)
+    margin_checks()
+    reveal_checks(tapestry)
+    alignment_checks(tapestry)
+    serpent_checks(default)
+    realism_checks(default)
+    run(tapestry)
+    run(load(str(ROOT / "beats_tapestry.json"), paper="letter"))
     old = load(str(ROOT / "beats.json"))
     r = Renderer(old)
     check("old beats.json still loads", r.timeline.end > 0)

@@ -65,6 +65,18 @@ def synthesize(name, rate, settings):
         env = (0.5 + 0.5 * np.sin(t * 2.1 + 0.8 * np.sin(t * 4.3))) ** 4
         phase = 2 * np.pi * (95 * t + 2 * np.sin(t * 2.6))
         data = (np.sin(phase) + 0.3 * np.sin(phase * 2.03)) * env * 0.12 + low * 0.2
+    elif name == "slither":
+        hiss = cv2.GaussianBlur(noise[:, None], (1, 0), max(1, rate / 4000))[:, 0]
+        swell = 0.6 + 0.4 * np.sin(2 * np.pi * 0.9 * t + 1.3 * np.sin(2 * np.pi * 0.23 * t)) ** 2
+        data = (0.5 * low + 0.25 * hiss) * swell
+        for x in range(max(1, round(duration * 5))):
+            start = int(rng.integers(count))
+            n = min(count - start, round(rate * rng.uniform(0.01, 0.03)))
+            data[start:start + n] += low[start:start + n] * np.exp(-np.arange(n) / max(1, n / 4)) * 0.6
+    elif name == "inhale":
+        p = np.clip(t / max(0.001, duration), 0, 1)
+        air = cv2.GaussianBlur(noise[:, None], (1, 0), max(1, rate / 9000))[:, 0]
+        data = (0.55 * air + 0.45 * low) * np.sin(np.pi * p) ** 2 * np.sqrt(p) * 0.35
     elif name == "shuttle":
         data = low * np.sin(np.pi * np.minimum(1, t / max(0.001, duration))) ** 2 * np.exp(-t * 5)
         data += np.sin(2 * np.pi * 170 * t) * np.exp(-t * 38) * 0.12
@@ -83,7 +95,9 @@ class Soundtrack:
         self.p = cfg.get("sound", {})
         self.rate = int(self.p.get("rate", 44100))
         self.end = timeline.end
-        self.silence = timeline.at(self.p.get("silence_from", "B21")) if "B21" in timeline.ids else self.end
+        flagged = [timeline.starts[x] for x in range(len(timeline.beats)) if timeline.beats[x].get("silence")]
+        silence_from = self.p.get("silence_from", "B21")
+        self.silence = flagged[0] if flagged else timeline.at(silence_from) if silence_from in timeline.ids else timeline.hold_t
         self.samples = np.zeros(round(self.end * self.rate), np.float32)
         self.events = []
         self.assets = {}
@@ -98,6 +112,8 @@ class Soundtrack:
                          if timeline.beat_at(weave.t0) == beat]
             for x in times:
                 self._cue(cue, x, timeline)
+        for x in (scene.sound_events() if hasattr(scene, "sound_events") else []):
+            self._cue(x[0], x[1], timeline)
         self.samples *= self.p.get("volume", 0.8)
         np.clip(self.samples, -0.98, 0.98, out=self.samples)
         self.samples[round(self.silence * self.rate):] = 0
@@ -131,6 +147,8 @@ class Soundtrack:
             ramp_end = timeline.at(cue.get("ramp_until", cue.get("until", self.end)), cue.get("ramp_offset", 0))
             progress = np.clip(times / max(1e-6, ramp_end - t0), 0, 1)
             gain += (cue["gain_to"] - cue.get("gain", 1.0)) * progress
+        if "envelope" in cue:
+            gain *= cue["envelope"](t0 + times)
         self.samples[start:stop] += played * gain
         self.events.append((cue["sound"], t0, stop / self.rate))
 

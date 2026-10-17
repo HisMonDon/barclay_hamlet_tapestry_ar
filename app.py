@@ -18,6 +18,7 @@ from controls import Controls, Rebuild
 KEYS_LEFT = {2424832, 65361, 63234, 81}
 KEYS_RIGHT = {2555904, 65363, 63235, 83}
 KEYS_QUIT = {27, ord("q"), ord("Q")}
+KEYS_HOME = {2359296, 65360, 63273}
 WINDOW = "Tapestry"
 
 
@@ -33,6 +34,11 @@ class Renderer:
         self.tracker = BoardTracker(cfg, **settings)
         self.comp = Compositor(cfg, self.scene, self.timeline)
         self.ow, self.oh = self.comp.ow, self.comp.oh
+
+    def set_live(self, live):
+        if self.comp.realism is not None:
+            self.comp.realism.live = live
+            self.comp.realism.state = {}
 
     def composite(self, frame, H, mult, over):
         return self.comp.composite(frame, H, mult, over)
@@ -85,6 +91,7 @@ def main():
             raise SystemExit(f"Unknown tone {args.tone!r}; choose from {', '.join(cfg['ink']['tones'])}")
         cfg["ink"]["tone"] = args.tone
     renderer = Renderer(cfg)
+    renderer.set_live(True)
     timeline = renderer.timeline
     tones = list(cfg["ink"]["tones"])
     quality = args.quality
@@ -120,15 +127,17 @@ def main():
     frame, final_frame = None, None
     debug = args.debug or cfg.get("debug", {}).get("hud", False)
     t, playing, virtual = 0.0, True, True
-    hold = timeline.at("B21") if "B21" in timeline.ids else timeline.end
+    hold = timeline.hold_t
     last = time.perf_counter()
     notice = ""
+    fps = 0.0
     try:
         while True:
             now = time.perf_counter()
             ready = using_backup or renderer.tracker.H is not None
             if playing and ready:
                 t = min(timeline.end, t + now - last)
+            fps = 0.9 * fps + 0.1 / max(1e-3, now - last)
             last = now
             frame, connected = camera.latest()
             locked = False
@@ -149,6 +158,8 @@ def main():
             if fresh is not None:
                 fresh.tracker.H, fresh.tracker.quad = renderer.tracker.H, renderer.tracker.quad
                 fresh.track_count = renderer.track_count
+                fresh.comp.force_reveal = renderer.comp.force_reveal
+                fresh.set_live(True)
                 if fresh.cfg["ink"]["tone"] != controls.tone:
                     fresh.scene.set_tone(controls.tone)
                 renderer, quality = fresh, rebuild.name
@@ -158,6 +169,8 @@ def main():
                 controls.status, rebuild.error = f"Quality switch failed: {rebuild.error}", None
             controls.draw(out, t, playing, [f"Building {rebuild.name} preset..."] if rebuild.busy else [])
             lines = []
+            if debug and locked and not using_backup:
+                out = renderer.comp.debug(out)
             if debug:
                 if not connected and not using_backup:
                     lines.append("Camera reconnecting; retaining last frame")
@@ -167,7 +180,8 @@ def main():
                     lines.append("Audio: " + audio.error)
                 if audio.soundtrack.warnings:
                     lines.append(audio.soundtrack.warnings[-1])
-                lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s  {controls.tone}  {quality}"
+                lines.append(f"{'BACKUP' if using_backup else 'LIVE'} {'PLAY' if playing else 'PAUSED'}  {t:5.2f}s  {fps:4.1f} fps  {controls.tone}  {quality}"
+                             + ("  REVEAL CHECK" if renderer.comp.force_reveal else "")
                              + ("  building " + rebuild.name if rebuild.busy else "") + ("  " + notice if notice else ""))
             if lines:
                 hud(out, lines)
@@ -213,9 +227,14 @@ def main():
             elif key in KEYS_RIGHT:
                 t = timeline.step(t, +1)
                 force = True
-            elif key in (ord("r"), ord("R")):
+            elif key == ord("R") or key in KEYS_HOME:
                 t, playing = 0.0, True
                 force = True
+            elif key == ord("r"):
+                renderer.comp.force_reveal = not renderer.comp.force_reveal
+                final_frame = None
+                if renderer.comp.reveal_art is None:
+                    notice = "Reveal art missing: run python -m tools.align_layers"
             elif key in (ord("v"), ord("V")):
                 virtual = not virtual
                 final_frame = None

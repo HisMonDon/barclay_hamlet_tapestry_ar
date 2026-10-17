@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from props import INK_DROP, Prop, Sprite, hex_bgr, teardrop
+from timeline import hold_time
 
 
 class Splash(Prop):
@@ -145,9 +146,7 @@ class Motes:
         self.margin = 0.06
         out = cfg.get("output", {"width": 1920, "height": 1080})
         self.vy_k = cfg["tapestry"]["height"] / cfg["tapestry"]["width"] * out["width"] / out["height"]
-        beats = cfg["beats"]
-        k = next((i for i, b in enumerate(beats) if b.get("id") == "B21"), len(beats))
-        self.hold = sum(b["duration"] for b in beats[:k])
+        self.hold = hold_time(cfg["beats"])
         self.cache = {}
 
     def sprite(self, r):

@@ -1,0 +1,164 @@
+{
+ "matches": 1291,
+ "inliers": 471,
+ "homography": [
+  [
+   0.989794,
+   -0.001749,
+   11.793264
+  ],
+  [
+   0.000994,
+   1.002831,
+   -6.768073
+  ],
+  [
+   2e-06,
+   -2e-06,
+   1.0
+  ]
+ ],
+ "panels": [
+  {
+   "id": "garden",
+   "ecc_before": 0.383,
+   "ecc_after": 0.46,
+   "shift_px": 5.57,
+   "residual_global": 1.469,
+   "residual_refined": 1.418,
+   "patches": 116,
+   "refined": true
+  },
+  {
+   "id": "ghost",
+   "ecc_before": 0.136,
+   "ecc_after": 0.464,
+   "shift_px": 9.647,
+   "residual_global": 7.115,
+   "residual_refined": 3.573,
+   "patches": 126,
+   "refined": true
+  },
+  {
+   "id": "throne",
+   "ecc_before": 0.278,
+   "ecc_after": 0.49,
+   "shift_px": 11.849,
+   "residual_global": 4.479,
+   "residual_refined": 1.733,
+   "patches": 152,
+   "refined": true
+  },
+  {
+   "id": "antic",
+   "ecc_before": 0.383,
+   "ecc_after": 0.443,
+   "shift_px": 2.442,
+   "residual_global": 1.489,
+   "residual_refined": 1.065,
+   "patches": 79,
+   "refined": true
+  },
+  {
+   "id": "rg_letter",
+   "ecc_before": 0.455,
+   "ecc_after": 0.528,
+   "shift_px": 3.917,
+   "residual_global": 1.891,
+   "residual_refined": 1.208,
+   "patches": 115,
+   "refined": true
+  },
+  {
+   "id": "mousetrap",
+   "ecc_before": 0.605,
+   "ecc_after": 0.698,
+   "shift_px": 3.487,
+   "residual_global": 1.919,
+   "residual_refined": 1.809,
+   "patches": 179,
+   "refined": true
+  },
+  {
+   "id": "arras",
+   "ecc_before": 0.474,
+   "ecc_after": 0.554,
+   "shift_px": 3.019,
+   "residual_global": 2.111,
+   "residual_refined": 1.73,
+   "patches": 140,
+   "refined": true
+  },
+  {
+   "id": "ophelia",
+   "ecc_before": 0.338,
+   "ecc_after": 0.427,
+   "shift_px": 6.077,
+   "residual_global": 3.463,
+   "residual_refined": 3.85,
+   "patches": 103,
+   "refined": false
+  },
+  {
+   "id": "grave",
+   "ecc_before": 0.435,
+   "ecc_after": 0.514,
+   "shift_px": 5.215,
+   "residual_global": 2.059,
+   "residual_refined": 1.591,
+   "patches": 123,
+   "refined": true
+  },
+  {
+   "id": "river",
+   "ecc_before": 0.35,
+   "ecc_after": 0.305,
+   "shift_px": 8.422,
+   "residual_global": 2.098,
+   "residual_refined": 1.626,
+   "patches": 5,
+   "refined": false
+  },
+  {
+   "id": "duel",
+   "ecc_before": 0.534,
+   "ecc_after": 0.592,
+   "shift_px": 3.756,
+   "residual_global": 1.686,
+   "residual_refined": 1.138,
+   "patches": 102,
+   "refined": true
+  },
+  {
+   "id": "cup",
+   "ecc_before": 0.379,
+   "ecc_after": 0.508,
+   "shift_px": 3.59,
+   "residual_global": 2.694,
+   "residual_refined": 1.541,
+   "patches": 87,
+   "refined": true
+  },
+  {
+   "id": "fortinbras",
+   "ecc_before": 0.578,
+   "ecc_after": 0.657,
+   "shift_px": 2.996,
+   "residual_global": 1.902,
+   "residual_refined": 1.298,
+   "patches": 122,
+   "refined": true
+  }
+ ],
+ "print_margin_mm": [
+  6.35,
+  9.79,
+  6.35,
+  9.79
+ ],
+ "printed_mm": [
+  266.7,
+  412.21
+ ],
+ "hash": "a9fc0817c0e27b94"
+}
