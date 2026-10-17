@@ -9,7 +9,7 @@ import numpy as np
 from config import read, resolve
 from fields import BIG, geodesic, line_map, raster, ridged, warped_noise
 from ink import Canvas, hex_bgr, smoothstep
-from serpent import Route, Serpent
+from serpent import Route, Serpent, travel
 
 ORDER = ("breach", "flood", "blink", "recede")
 FIELDS = ("tin", "tout", "vd", "vc", "tc")
@@ -101,16 +101,23 @@ class RevealEngine:
         self.vein = v
         self.vein_alpha, self.breath, self.period = v.get("alpha", 0.55), v.get("breath", 0.06), v.get("period_s", 4.0)
         self.panels = self._schedule(timeline, load_panels(cfg))
+        self.route = None
+        if r.get("serpent") is not None:
+            swim = {x["id"]: (self.u0, x["U"]) for x in self.panels if x["swim"]}
+            self.route = Route(cfg, timeline, [x["geo"]["polygon"] for x in self.panels if x["light"]], swim)
+        ghost = cfg.get("regions", {}).get(cfg.get("ghost", {}).get("region", "ghost"))
+        self.figure = ghost["polygon"] if ghost else None
+        self.lift = r.get("ghost_lift", 0.0)
         self.geo = self._build(art, cache_dir)
         shape = (self.h, self.w)
-        self.R8, self.I8, self.D8, self.V8, self.G8 = (np.zeros(shape, np.uint8) for x in range(5))
+        self.R8, self.I8, self.D8, self.V8, self.G8, self.L8 = (np.zeros(shape, np.uint8) for x in range(6))
         self.mult, self.Mp, self.Mb = (np.full(shape + (3,), 255, np.uint8) for x in range(3))
         self.add = np.zeros(shape + (3,), np.uint8)
         self.levels = v.get("levels", 16)
         self.ghost_col = self.ghost_light * r.get("ghost_glow", 0.5)
         self.serpent = None
-        if r.get("serpent") is not None:
-            self.serpent = Serpent(cfg, Route(cfg, timeline), self.canvas, self._exclusion())
+        if self.route is not None:
+            self.serpent = Serpent(cfg, self.route, self.canvas, self._exclusion())
         self.keys = [None] * len(self.panels)
         self.mkeys = [None] * len(self.panels)
         self.states = [("dormant", 0.0)] * len(self.panels)
@@ -129,7 +136,7 @@ class RevealEngine:
             lag = self._lag(times[2] - times[1])
             U = 1 + self.rw + 0.16 if light else 1 + lag + self.rw
             out.append({"id": spec["id"], "beat": b.get("id"), "spec": spec, "geo": geometry[spec["id"]], "light": light,
-                        "times": times, "lag": lag, "U": U})
+                        "swim": spec.get("mode") == "swim", "times": times, "lag": lag, "U": U})
         return out
 
     def _exclusion(self):
@@ -152,6 +159,11 @@ class RevealEngine:
         spec = [[x["id"], x["spec"], x["geo"]["polygon"]] for x in self.panels]
         h.update(json.dumps([spec, self.p.get("cost"), self.vein, self.canvas.w0, self.canvas.h0, VERSION], sort_keys=True, default=str).encode())
         h.update(cv2.resize(art, (64, 64), interpolation=cv2.INTER_AREA).tobytes())
+        for x in self.panels:
+            if x["swim"]:
+                xy, u = self.route.swim_track(x["id"])
+                h.update(np.round(np.column_stack([xy, u]), 5).tobytes())
+                h.update(json.dumps(self.p.get("serpent", {}), sort_keys=True).encode())
         return h.hexdigest()[:16]
 
     def _build(self, art, cache_dir):
@@ -177,6 +189,9 @@ class RevealEngine:
             mroi = m[r0:r1, c0:c1]
             g["mask8"] = np.clip(mroi * 255 + 0.5, 0, 255).astype(np.uint8)
             g["own"] = mroi > 0.003
+            if panel["light"] and self.figure is not None and self.lift > 0:
+                f = raster(self.figure, w0, h0, max(0.6, 0.0025 * w0))[r0:r1, c0:c1]
+                g["lift8"] = np.clip(f * self.lift * 255 + 0.5, 0, 255).astype(np.uint8)
             arrays = unpack(cached, x)
             if arrays is None:
                 if cost is None:
@@ -230,6 +245,30 @@ class RevealEngine:
         D[~inside] = np.inf
         return D
 
+    def _wake(self, panel, box, inside, cost):
+        """Arrival for a panel the Serpent swims through: each point of its track floods just after the head passes,
+        and the ink spreads out from the track over the cost image like a disturbed current."""
+        r0, r1, c0, c1 = box
+        w0, h0 = self.canvas.w0, self.canvas.h0
+        sp = self.p.get("serpent", {})
+        k, lag = sp.get("swim_spread", 4.0), sp.get("swim_lag", 0.03)
+        xy, u = self.route.swim_track(panel["id"])
+        px = np.floor(xy[:, 0] * w0).astype(np.int64) - c0
+        py = np.floor(xy[:, 1] * h0).astype(np.int64) - r0
+        ok = (px >= 0) & (py >= 0) & (px < inside.shape[1]) & (py < inside.shape[0])
+        px, py, u = px[ok], py[ok], u[ok]
+        ok = inside[py, px]
+        px, py, u = px[ok], py[ok], u[ok]
+        D, Z = np.full(inside.shape, np.inf), np.full(inside.shape, np.inf)
+        np.minimum.at(D, (py, px), (u + lag) / k)
+        Z[py, px] = 0.0
+        C = np.where(inside, cost, BIG)
+        aniso = self.p.get("cost", {}).get("aniso", 0.04)
+        T = geodesic(D, C, 1.0 / w0, aniso) * k
+        side = geodesic(Z, C, 1.0 / w0, aniso)
+        T[~inside], side[~inside] = np.inf, np.inf
+        return T, side
+
     @staticmethod
     def _normal(D):
         fin = np.isfinite(D)
@@ -238,8 +277,11 @@ class RevealEngine:
 
     def _fields(self, panel, box, inside, cost, edge, net, seed):
         spec = panel["spec"]
-        entry = spec.get("entry_object") or [[spec["entry"]]]
-        tin = self._distance(entry, box, inside, cost, spec.get("gravity", 0.0))
+        if panel["swim"]:
+            tin, side = self._wake(panel, box, inside, cost)
+        else:
+            entry = spec.get("entry_object") or [[spec["entry"]]]
+            tin = self._distance(entry, box, inside, cost, spec.get("gravity", 0.0))
         shape = inside.shape
         empty = np.zeros(shape, np.float32)
         if panel["light"]:
@@ -252,7 +294,7 @@ class RevealEngine:
         v = self.vein
         x0, y0, x1, y1 = panel["geo"]["rect"]
         diag = math.hypot(x1 - x0, (y1 - y0) * self.aspect)
-        S = tin + tout
+        S = side if panel["swim"] else tin + tout
         fin = np.isfinite(S) & inside
         d = np.where(fin, (S - float(S[fin].min())) / (v.get("spine", 0.035) * diag), 9.0)
         spine = np.clip(1 - d, 0, 1) ** 1.5
@@ -278,7 +320,8 @@ class RevealEngine:
         vc = vc * inside * 0.8
         tc = np.where(np.isfinite(tc), tc, 0.0)
         blur = lambda a: cv2.GaussianBlur(a.astype(np.float32), (0, 0), 0.6)
-        return {"tin": self._normal(tin), "tout": self._normal(tout), "vd": np.clip(blur(vd), 0, 1),
+        tin = np.where(np.isfinite(tin), np.minimum(tin, 1.0), 1.0).astype(np.float32) if panel["swim"] else self._normal(tin)
+        return {"tin": tin, "tout": self._normal(tout), "vd": np.clip(blur(vd), 0, 1),
                 "vc": np.clip(blur(vc), 0, 1), "tc": tc.astype(np.float32)}
 
     def _bases(self, panel, a):
@@ -303,6 +346,7 @@ class RevealEngine:
         out["base_c"] = (-a["tc"] * K3).astype(np.float32)
         out["creep_end"] = float(a["tc"].max()) + 0.5
         out["vfinal"] = np.maximum(out["vd8"], out["vc8"])
+        out["tc"], out["tout"] = a["tc"], a["tout"]
         return out
 
     def _luts(self):
@@ -366,7 +410,7 @@ class RevealEngine:
                 R = np.full_like(m8, 255)
         elif phase in ("breach", "flood"):
             lo, K = g["range"]
-            u = self.u0 * p if phase == "breach" else self.u0 + (panel["U"] - self.u0) * ease_flood(p)
+            u = self.u0 * p if phase == "breach" else self.u0 + (panel["U"] - self.u0) * (travel(p) if panel["swim"] else ease_flood(p))
             idx = index(g["base"], (u - lo) * K)
             I, D = cv2.LUT(idx, panel["lut_i"]), cv2.LUT(idx, panel["lut_d"])
             if phase == "flood":
@@ -392,6 +436,8 @@ class RevealEngine:
             np.copyto(x[0][sl], scale(x[1], m8), where=g["own"])
         if panel["light"]:
             np.copyto(self.G8[sl], scale(G, m8), where=g["own"])
+            if "lift8" in g:
+                np.copyto(self.L8[sl], scale(scale(R, g["lift8"]), m8), where=g["own"])
 
     def _level(self, k, t):
         return int(math.floor(self.levels * (t / self.period + 0.37 * k))) % self.levels
@@ -400,11 +446,13 @@ class RevealEngine:
         r0, r1, c0, c1 = self.geo[k]["roi"]
         i, v, d = self.I8[r0:r1, c0:c1], self.V8[r0:r1, c0:c1], self.D8[r0:r1, c0:c1]
         self.Mp[r0:r1, c0:c1] = scale(scale(cv2.LUT(three(i), self.lut_im), cv2.LUT(three(v), self.lut_vs[level])), cv2.LUT(three(d), self.lut_dm))
+        if "lift8" in self.geo[k]:
+            self.Mp[r0:r1, c0:c1] = scale(self.Mp[r0:r1, c0:c1], three(cv2.bitwise_not(self.L8[r0:r1, c0:c1])))
 
     def _compose(self, rect, sv):
         x0, y0, x1, y1 = rect
         m = scale(self.Mp[y0:y1, x0:x1], self.Mb[y0:y1, x0:x1])
-        a = self._tint(self.G8[y0:y1, x0:x1], self.ghost_col)
+        a = cv2.add(self._tint(self.G8[y0:y1, x0:x1], self.ghost_col), self._tint(self.L8[y0:y1, x0:x1], self.ghost_light))
         if sv is not None:
             sx0, sy0, sx1, sy1 = sv["roi"]
             ix0, iy0, ix1, iy1 = max(x0, sx0), max(y0, sy0), min(x1, sx1), min(y1, sy1)
@@ -435,7 +483,7 @@ class RevealEngine:
                 box = union(box, g["box"])
             if phase not in ("dormant", "breach"):
                 rbox = union(rbox, g["box"])
-            if panel["light"] and phase == "flood":
+            if panel["light"] and (phase == "flood" or (phase == "settled" and "lift8" in g)):
                 abox = union(abox, g["box"])
         sv = None
         if self.serpent is not None:
@@ -461,7 +509,9 @@ class RevealEngine:
             self._compose(x, sv)
         self.body = sv
         self.box = box
-        self._out = {"R": self.R8, "mult": self.mult, "add": self.add if abox is not None else None, "box": box, "rbox": rbox, "abox": abox, "t": t}
+        self._out = {"R": self.R8, "mult": self.mult, "add": self.add if abox is not None else None, "box": box, "rbox": rbox, "abox": abox, "t": t,
+                     "sheen": None if sv is None else sv["add"], "sbody": None if sv is None else sv["I"],
+                     "sroi": None if sv is None else sv["roi"]}
         self._t = t
         return self._out
 
@@ -492,6 +542,53 @@ class RevealEngine:
             if x["light"]:
                 g = np.where((times >= x["times"][0]) & (times < x["times"][4]), 0.0, g)
         return g.astype(np.float32)
+
+    def weed_field(self, shape, cover=None):
+        """When weeds may grow at each point of the sheet: a flood panel opens once it settles, and the whole sheet
+        once a covering banner has finished."""
+        h, w = shape
+        T = np.full(shape, np.inf if cover is None else cover, np.float32)
+        for x in self.panels:
+            if not x["light"]:
+                m = raster(x["geo"]["polygon"], w, h) > 0.5
+                T[m] = np.minimum(T[m], x["times"][4])
+        return T
+
+    def vein_roots(self, tw, th):
+        """Weed roots per flood panel at the ends of its residue veins: the drain vein's two ends and the tip of each
+        corner creep, in tapestry pixels, with the direction the vein grows and the time it gets there."""
+        out = {}
+        w0, h0 = self.canvas.w0, self.canvas.h0
+        for x in range(len(self.panels)):
+            panel, g = self.panels[x], self.geo[x]
+            if panel["light"]:
+                continue
+            r0, r1, c0, c1 = g["inner"]
+            ts = panel["times"][4]
+            to_px = lambda i, j: ((c0 + j + 0.5) / w0 * tw, (r0 + i + 0.5) / h0 * th)
+            ends = []
+            inside = cv2.erode(np.where(g["mask8"] > 250, 255, 0).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+            spine = (g["vd8"] > 200) & inside
+            for f in (g["tout"], g["tin"]):
+                if spine.any():
+                    i, j = np.unravel_index(np.argmin(np.where(spine, f, np.inf)), spine.shape)
+                    ends.append(to_px(i, j) + (-math.pi / 2, ts))
+            tips = []
+            creep = (g["vc8"] > 110) & inside
+            ci, cj = (r1 - r0) / 2.0, (c1 - c0) / 2.0
+            ii, jj = np.indices(creep.shape)
+            for q in ((0, 0), (1, 1), (0, 1), (1, 0)):
+                qi, qj = q
+                quad = creep & ((ii >= ci) == bool(qi)) & ((jj >= cj) == bool(qj))
+                if not quad.any():
+                    continue
+                i, j = np.unravel_index(np.argmax(np.where(quad, g["tc"], -1.0)), quad.shape)
+                ci0, cj0 = (r1 - r0) * qi, (c1 - c0) * qj
+                a = math.atan2((i - ci0) * th / h0, (j - cj0) * tw / w0)
+                tips.append(to_px(i, j) + (a, ts + float(g["tc"][i, j])))
+            pairs = zip(ends + [None] * 4, tips + [None] * 4)
+            out[panel["id"]] = [y for pair in pairs for y in pair if y is not None]
+        return out
 
     def heat(self, t):
         out = np.zeros((self.h, self.w, 4), np.uint8)

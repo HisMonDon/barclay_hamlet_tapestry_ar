@@ -66,6 +66,11 @@ class Weave:
         self.hi = hi
         self.finished = None
         self.a_final = None
+        self.final = None
+        self.cover = bool(w.get("cover", False))
+        self.through = (w.get("sheen_through", 0.0), w.get("body_through", 0.0))
+        self.gap = w.get("gap_shade", 0.0)
+        self.gap_col = hex_bgr(w.get("gap_colour", "#0E0B10"))
         self.shimmer = w.get("shimmer", 0.0)
         self.sh_speed = w.get("shimmer_speed", 0.07)
         self.sh_col = hex_bgr(w.get("shimmer_colour", "#fff0c8"))
@@ -92,20 +97,52 @@ class Weave:
         flick = 1.0 if p < 0.45 else 0.75 + 0.25 * math.cos((p - 0.45) * 23.0) * math.cos((p - 0.45) * 7.0)
         return pos, level * flick, g.get("width", 0.07)
 
+    def _woven(self, t, ys):
+        p = np.clip((t - self.start[ys]) / self.row_time, 0.0, 1.0)
+        return np.clip((p * self.width - self.along[ys]) / self.px + 0.5, 0.0, 1.0) * (t >= self.start[ys])
+
+    def _paint(self, woven, ys, col):
+        a = self.static[ys] * woven
+        out = np.empty(a.shape + (4,), np.float32)
+        out[..., :3] = col * a[..., None]
+        out[..., 3] = 255.0 * a
+        if self.gap:
+            g = self.gap * (1.0 - self.static[ys]) * woven
+            out[..., :3] += self.gap_col * g[..., None]
+            out[..., 3] += 255.0 * g
+        return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+    def _rows(self, t):
+        """A plain weave mid-way: finished rows come from the final image and only the row on the shuttle is woven."""
+        if self.final is None:
+            self.final = self._paint(self._woven(self.finish(), slice(None)), slice(None), self.colour)
+        s = self.start[:, 0]
+        p = np.clip((t - s) / self.row_time, 0.0, 1.0)
+        out = np.zeros_like(self.final)
+        done = (p >= 1.0) & (t >= s)
+        out[done] = self.final[done]
+        act = np.nonzero((t >= s) & (p < 1.0))[0]
+        if len(act):
+            ys = slice(int(act[0]), int(act[-1]) + 1)
+            out[ys] = self._paint(self._woven(t, ys), ys, self.colour[ys])
+        return out
+
     def render(self, t):
         if t < self.t0:
             return None
         gl = self.glint_at(t)
+        if not self.shimmer and self.glint is None and t < self.finish():
+            return self._rows(t)
         if t >= self.finish() and gl is None and self.finished is not None and not self.shimmer:
             return self.finished
         if t >= self.finish():
             if self.a_final is None:
                 p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
-                self.a_final = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
-            a = self.a_final
+                self.a_final = np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
+            woven = self.a_final
         else:
             p = np.clip((t - self.start) / self.row_time, 0.0, 1.0)
-            a = self.static * np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
+            woven = np.clip((p * self.width - self.along) / self.px + 0.5, 0.0, 1.0) * (t >= self.start)
         col = self.colour
         if self.shimmer:
             # Couched metal thread: a slow candlelit sheen slides diagonally across the floats.
@@ -119,10 +156,7 @@ class Weave:
             band = np.exp(-(d / (width * span / (self.width + 0.6 * self.height))) ** 2) * level
             boost = (band * (0.35 + 0.65 * self.spec_mask))[..., None]
             col = col + (np.array([235.0, 248.0, 255.0], np.float32) - col) * np.clip(boost, 0, 1)
-        out = np.empty(a.shape + (4,), np.float32)
-        out[..., :3] = col * a[..., None]
-        out[..., 3] = 255.0 * a
-        result = np.clip(out + 0.5, 0, 255).astype(np.uint8)
+        result = self._paint(woven, slice(None), col)
         if t >= self.finish() and gl is None:
             self.finished = result
         return result

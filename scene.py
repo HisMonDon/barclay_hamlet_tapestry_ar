@@ -51,7 +51,12 @@ class Scene:
         self.weaves = [Weave(w, t0, self.over_canvas, cfg.get("banner"), glints[0] if glints else None)
                        for w, t0 in timeline.weaves()]
         self.over = np.zeros((self.over_canvas.h, self.over_canvas.w, 4), np.uint8)
-        self.weeds = WeedEngine(cfg, timeline, self.ink.T, self.ink_canvas, self.over_canvas)
+        T, veins = self.ink.T, None
+        if self.reveal is not None:
+            cover = [w.finish() for w in self.weaves if w.cover]
+            T = np.minimum(T, self.reveal.weed_field(T.shape, min(cover) if cover else None))
+            veins = self.reveal.vein_roots(self.tw, self.th)
+        self.weeds = WeedEngine(cfg, timeline, T, self.ink_canvas, self.over_canvas, veins)
         self._saved = []
         self._content = False
         self._cache_t = None
@@ -106,7 +111,7 @@ class Scene:
         for w in self.weaves:
             img = w.render(t)
             if img is not None:
-                self._stamp(w.rows, w.cols, img, True)
+                self._stamp(w.rows, w.cols, img, not w.cover)
                 box = self._union(box, w.rows, w.cols)
                 drew = True
         for p in self.props:
@@ -166,4 +171,7 @@ class Scene:
             ex["over_box"] = self.over_box
         if self.reveal is not None:
             ex["reveal"] = self.reveal.layers(t)
+            through = [w.through for w in self.weaves if w.cover and any(w.through) and t >= w.t0]
+            if through:
+                ex["through"] = through[0]
         return ex

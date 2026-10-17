@@ -317,6 +317,24 @@ class Compositor:
         clear = cv2.subtract(255, top[:, :, 3])
         sub = cv2.multiply(out[y0:y1, x0:x1], cv2.merge([clear, clear, clear]), scale=1.0 / 255.0)
         out[y0:y1, x0:x1] = cv2.add(sub, top[:, :, :3])
+        rv = extra.get("reveal") if extra else None
+        if extra and extra.get("through") and rv is not None and rv.get("sheen") is not None:
+            sx0, sy0 = rv["sroi"][:2]
+            Ms = np.array([[1, 0, -sx0], [0, 1, -sy0], [0, 0, 1]], np.float64) @ self.rev_inv @ Mt
+            sr = self._roi(rv["sroi"], self.rev_inv @ Mt, w, h)
+            if sr is not None:
+                x0, y0, x1, y1 = sr
+                ks, kb = extra["through"]
+                cover = self._warp_roi(np.ascontiguousarray(over[:, :, 3]), Mo, sr, 0)
+                part = out[y0:y1, x0:x1]
+                if kb:
+                    body = cv2.GaussianBlur(self._warp_roi(rv["sbody"], Ms, sr, 0), (0, 0), 2.0)
+                    shade = cv2.subtract(255, cv2.multiply(body, cover, scale=kb / 255.0))
+                    part = cv2.multiply(part, cv2.merge([shade, shade, shade]), scale=1 / 255.0)
+                if ks:
+                    sheen = self._warp_roi(rv["sheen"], Ms, sr, (0, 0, 0))
+                    part = cv2.add(part, cv2.multiply(sheen, cv2.merge([cover, cover, cover]), scale=ks / 255.0))
+                out[y0:y1, x0:x1] = part
         return out
 
     def composite(self, frame, H, mult, over, extra=None):

@@ -73,7 +73,7 @@
   "mix": {"olive": 0.4, "blackgreen": 0.35, "deepolive": 0.17, "rust": 0.08, "bud": 0.0, "petal": 0.0},
   "knot_colours": ["rust", "rust", "olive"],
   "light": [-0.6, -0.8],
-  "avoid_regions": ["banner", "ghost"]
+  "avoid_regions": ["ghost"]
  },
  "banner": {
   "colour": "#c99b45",
@@ -116,6 +116,8 @@
   "breach_u": 0.03,
   "damp": 0.15,
   "ghost_glow": 0.5,
+  "ghost_lift": 0.6,
+  "margin": 0.15,
   "cost": {"fbm": 0.6, "edge": 0.45, "floor": 0.25, "cells": 9, "octaves": 4, "warp": 0.03, "seed": 41, "aniso": 0.04, "line_contrast": 70.0},
   "veins": {
    "alpha": 0.55,
@@ -130,6 +132,10 @@
   },
   "serpent": {
    "length_px": 260,
+   "recoil_px": 6,
+   "swim_reach": 0.8,
+   "swim_spread": 4.0,
+   "swim_lag": 0.03,
    "amplitude_px": 10,
    "wavelength_px": 90,
    "feather_px": 3.0,
@@ -256,6 +262,9 @@
     "birth": {"pool_s": 0.7},
     "rise": [[0.152, 0.186], [0.168, 0.172]]
    },
+   "weeds": [
+    {"kind": "veins", "t": 0.0, "count": 4, "length": 0.06, "stagger": 0.6, "seed": 21}
+   ],
    "props": [
     {
      "kind": "vial",
@@ -476,9 +485,10 @@
    "panel": {
     "id": "river",
     "delay": 0.4,
-    "phases": {"breach": 0.0556, "flood": 0.4444, "blink": 0.0833, "recede": 0.3056},
+    "phases": {"breach": 0.05, "flood": 0.55, "blink": 0.07, "recede": 0.22},
     "entry": [0.925, 0.737],
     "exit": [0.075, 0.737],
+    "mode": "swim",
     "speed_mul": 1.6
    },
    "serpent": {
@@ -587,6 +597,9 @@
    "follow": 0.0,
    "silence": true,
    "desc": "The gold banner covers the rot without uprooting it; silence from here on",
+   "weaves": [
+    {"t": 0.2, "bounds": [0.0, 0.0, 1.0, 1.0], "speed": 0.35, "cover": true, "duty": 1.0, "warp": 1.0, "gap_shade": 0.7, "sheen_through": 5.0, "body_through": 0.35, "shimmer": 0.0, "seed": 14}
+   ],
    "camera": [
     {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 1.0}
    ]
@@ -598,6 +611,13 @@
    "handheld": 0.6,
    "follow": 0.0,
    "desc": "Weeds and the Serpent's tail slide off the bottom edge onto the desk",
+   "weeds": [
+    {"kind": "spill", "t": 0.2, "sides": ["bottom"], "span": [0.04, 0.7], "count": 14, "length": 0.32, "seed": 9}
+   ],
+   "serpent": {
+    "spill": {"delay": 0.3, "dur": 3.2, "tail_px": 40, "wave": [0.8, 1.0],
+              "route": [[0.862, 0.95], [0.872, 0.985], [0.876, 1.03], [0.868, 1.08], [0.858, 1.14], [0.85, 1.2], [0.842, 1.26], [0.836, 1.32]]}
+   },
    "camera": [
     {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 1.0},
     {"t": 3.8, "x": 0.5, "y": 0.5, "zoom": 0.85}

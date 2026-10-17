@@ -12,6 +12,7 @@ KINDS = {
     "gaps": {"speed": 0.9, "branch": 0.5, "depth": 1, "nb": (2, 0), "curl": 0.08, "trop": 0.18, "leaf": 0.55, "knot": 0.2, "bud": 0.22, "flower": 0.06, "tendril": 0.25, "spread": 30, "taper": 0.45},
     "spill": {"speed": 4.2, "branch": 0.55, "depth": 2, "nb": (4, 1), "curl": 0.055, "trop": 0.1, "leaf": 0.6, "knot": 0.12, "bud": 0.16, "flower": 0.06, "tendril": 0.5, "spread": 34, "taper": 0.4},
 }
+SIDES = ["top", "right", "bottom", "left"]
 
 
 def hex_bgr(h):
@@ -32,8 +33,9 @@ class Builder:
 
 
 class WeedEngine:
-    def __init__(self, cfg, timeline, T, canvas, over_canvas):
+    def __init__(self, cfg, timeline, T, canvas, over_canvas, veins=None):
         self.cfg = cfg
+        self.veins = veins or {}
         self.p = cfg.get("weeds", {})
         fx = cfg.get("fx", {})
         self.tw, self.th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
@@ -203,11 +205,17 @@ class WeedEngine:
         kind = spec.get("kind", "sprout")
         out = []
         tries = 0
+        if kind == "veins":
+            for x in self.veins.values():
+                for vx, vy, a, tv in x[:n]:
+                    out.append((vx, vy, a, max(t0, tv) + self.soak + rng.uniform(0.0, spec.get("stagger", 0.6))))
+            return out
         if kind == "spill":
+            sides = [SIDES.index(x) for x in spec.get("sides", SIDES)]
             while len(out) < n and tries < n * 60:
                 tries += 1
-                side = rng.integers(0, 4)
-                u = rng.uniform(0.04, 0.96)
+                side = sides[int(rng.integers(0, len(sides)))]
+                u = rng.uniform(*spec.get("span", [0.04, 0.96]))
                 d = rng.uniform(0.004, 0.03)
                 if side == 0:
                     x, y, a = u * self.tw, d * self.tw, -math.pi / 2
