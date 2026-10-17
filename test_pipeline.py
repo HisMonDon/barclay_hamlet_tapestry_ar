@@ -1,3 +1,4 @@
+import math
 import sys
 import time
 import tempfile
@@ -806,6 +807,67 @@ def serpent_checks_motion(cfg, renderer):
           f"{int(mask.sum())} px, corr {corr:.2f}, {g_out.mean():.0f} vs {g_art.mean():.0f}")
 
 
+def follow_checks(cfg, tapestry):
+    renderer = Renderer(cfg)
+    tl, comp = renderer.timeline, renderer.comp
+    path = renderer.scene.reveal.serpent.path
+    vs = tl.aspect * tl.out_aspect
+    tt = np.arange(0.0, tl.end, 1 / 30)
+    P = np.array([tl.camera_pose(float(x)) for x in tt])
+    Q = np.array([tl.camera_pose(float(x)) for x in tt[::-1]])[::-1]
+    fresh = Renderer(cfg).timeline
+    R = np.array([fresh.camera_pose(float(x)) for x in tt])
+    check("the follow camera is a pure function of t", np.array_equal(P, Q) and np.array_equal(P, R))
+    move = float((np.hypot(np.diff(P[:, 0]), np.diff(P[:, 1]) * tl.aspect) / P[1:, 2]).max())
+    zoom = float(np.abs(np.diff(np.log(P[:, 2]))).max())
+    check("the follow camera never cuts", move < 0.02 and zoom < 0.03, f"max {move:.4f} frame widths, {zoom:.4f} log-zoom per frame")
+    off, framed = 0, 0.0
+    for x in tt[tt < tl.hold_t]:
+        cx, cy, w = tl._base(float(x))[:3]
+        off += tl.clamp(cx, cy, w) != (cx, cy)
+        st = path.state(float(x))
+        if st["kind"] == "move" and st["visible"] and min(tl.follow_level(float(x))) > 0.99:
+            hx, hy = path.at(st["head"]) / [1.0, path.aspect]
+            framed = max(framed, abs(hx - cx) / w, abs(hy - cy) / (w / vs))
+    check("the follow camera keeps the crop on the paper", off == 0, f"{off} frames off")
+    check("the travelling Serpent stays inside the frame", 0.0 < framed < 0.4, f"head at most {framed:.3f} of the frame from centre")
+    key = tl._interp(tl.hold_t)[2]
+    still = [tl.camera_pose(tl.hold_t + x) for x in (0.0, 2.0, 5.0)]
+    check("the camera lands on its key and locks for the hold", all(x == still[0] for x in still) and abs(still[0][2] / key - 1) < 0.01,
+          f"zoom {vs / still[0][2]:.3f}x vs key {vs / key:.3f}x")
+    lead = []
+    for x in tt[tt < tl.hold_t]:
+        st = path.state(float(x) + tl.fo["lookahead_s"])
+        if st["kind"] == "move" and min(tl.follow_level(float(x))) > 0.99:
+            hx, hy = path.at(st["head"]) / [1.0, path.aspect]
+            a, b = tl.follow_target(float(x)), tl.clamp(hx, hy, tl._interp(float(x))[2])
+            lead.append(max(abs(a[0] - b[0]), abs(a[1] - b[1])))
+    check("the camera chases the head 0.35 s ahead, held on the paper", lead and max(lead) < 0.005, f"{len(lead)} samples, max {max(lead or [0]):.4f}")
+
+    Ht = truth(cfg)
+    spans, capped, steps, last = [], 0, 0.0, None
+    for x in tt:
+        cx, cy, w, f, roll, want = comp.pose(float(x), Ht)
+        spans.append(comp.span_px(Ht, cx, cy, w))
+        capped += w > want * 1.0005
+        if last is not None:
+            steps = max(steps, abs(math.log(w / last)))
+        last = w
+    check("the zoom ceiling keeps the crop at least 640 camera pixels wide", min(spans) >= 639.0 and capped > 0,
+          f"min {min(spans):.1f} px, {capped}/{len(tt)} frames capped")
+    check("the zoom ceiling eases in without a jump", steps < 0.03, f"{steps:.4f} log-zoom per frame")
+    direct = Renderer(cfg)
+    direct.comp.set_source_artwork(direct.scene.reveal_art)
+    free = all(direct.comp.pose(float(x), Ht)[2] == direct.timeline.camera_pose(float(x))[2] for x in tt[::10])
+    check("a directly painted scan is not capped", free)
+    old = Renderer(tapestry)
+    same = all(old.comp.pose(float(x), Ht)[:5] == old.timeline.camera_pose(float(x)) for x in np.arange(0.0, old.timeline.end, 0.5))
+    check("the tapestry show keeps its keyed camera", old.timeline.fol is None and same)
+    dbg = comp.debug(renderer.frame(cv2.warpPerspective(np.full((tl.cfg["tapestry"]["height"], tl.cfg["tapestry"]["width"], 3), 200, np.uint8),
+                                                        Ht, FRAME), Ht, 23.0).copy())
+    check("the debug overlay shows the follow target and zoom", dbg.shape == (FRAME[1], FRAME[0], 3))
+
+
 def main():
     default = load()
     check("default paper is tabloid", default["board"]["paper"] == "tabloid", default["board"]["paper"])
@@ -823,6 +885,7 @@ def main():
     reveal_checks(tapestry)
     alignment_checks(tapestry)
     serpent_checks(default)
+    follow_checks(default, tapestry)
     realism_checks(default)
     run(tapestry)
     run(load(str(ROOT / "beats_tapestry.json"), paper="letter"))

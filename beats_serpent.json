@@ -93,6 +93,9 @@
   "ease": "settle",
   "dip": 0.18,
   "dip_max": 0.22,
+  "follow": {"lookahead_s": 0.35, "omega": 3.5, "rate_hz": 120, "blend_s": 1.0},
+  "ceiling_px": 640,
+  "ceiling_knee": 0.15,
   "handheld": {
    "amp": [0.0045, 0.0035],
    "roll_deg": 0.22,
@@ -228,6 +231,7 @@
    "name": "Clean",
    "duration": 2.0,
    "handheld": 0.5,
+   "follow": 0.0,
    "desc": "The clean, official tapestry; silence",
    "camera": [
     {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 1.0}
@@ -238,6 +242,7 @@
    "name": "Garden",
    "duration": 6.0,
    "handheld": 0.7,
+   "follow": 1.0,
    "desc": "One black drop falls from Claudius's vial into the sleeping king's ear; the garden floods and drains",
    "panel": {
     "id": "garden",
@@ -277,6 +282,7 @@
    "name": "Ghost",
    "duration": 3.0,
    "handheld": 0.6,
+   "follow": 0.5,
    "desc": "Ink cannot enter: the truth arrives as cool light falling from the moon",
    "panel": {
     "id": "ghost",
@@ -297,6 +303,7 @@
    "name": "Throne",
    "duration": 6.0,
    "handheld": 0.8,
+   "follow": 1.0,
    "desc": "Ink pools under the new king's crown, floods the throne and shows the shadow behind it",
    "panel": {
     "id": "throne",
@@ -318,6 +325,7 @@
    "name": "Mousetrap",
    "duration": 4.5,
    "handheld": 0.9,
+   "follow": 1.0,
    "desc": "Down the right column into the bed; it spreads across the sheets from the sleeper's ear",
    "panel": {
     "id": "mousetrap",
@@ -339,6 +347,7 @@
    "name": "Letter",
    "duration": 3.5,
    "handheld": 0.9,
+   "follow": 1.0,
    "desc": "It enters through the letter: the page blackens first, then both men",
    "panel": {
     "id": "rg_letter",
@@ -363,6 +372,7 @@
    "name": "Antic",
    "duration": 3.5,
    "handheld": 0.9,
+   "follow": 1.0,
    "desc": "It rises out of Hamlet's own shadow; even the watcher is touched",
    "panel": {
     "id": "antic",
@@ -387,6 +397,7 @@
    "name": "Arras",
    "duration": 4.5,
    "handheld": 1.0,
+   "follow": 1.0,
    "desc": "It seeps from behind the curtain, along the hem where the feet show",
    "panel": {
     "id": "arras",
@@ -411,6 +422,7 @@
    "name": "Ophelia",
    "duration": 6.0,
    "handheld": 0.6,
+   "follow": 1.0,
    "desc": "Half speed: the flood follows her flowers before it reaches her, and drains slowly like water",
    "panel": {
     "id": "ophelia",
@@ -436,6 +448,7 @@
    "name": "Grave",
    "duration": 4.5,
    "handheld": 0.9,
+   "follow": 1.0,
    "desc": "Ink pours down into the open grave and rises again around the skull",
    "panel": {
     "id": "grave",
@@ -458,6 +471,7 @@
    "name": "River",
    "duration": 4.0,
    "handheld": 0.8,
+   "follow": 1.0,
    "desc": "It drops into the water and swims right to left; the reveal follows its wake",
    "panel": {
     "id": "river",
@@ -482,6 +496,7 @@
    "name": "Duel",
    "duration": 4.0,
    "handheld": 1.0,
+   "follow": 1.0,
    "desc": "It runs along both poisoned blades, then floods outward from where they cross",
    "panel": {
     "id": "duel",
@@ -507,6 +522,7 @@
    "name": "Cup",
    "duration": 4.5,
    "handheld": 0.9,
+   "follow": 1.0,
    "desc": "It rises out of the cup like a drink being poured, then floods down over the table and Gertrude",
    "panel": {
     "id": "cup",
@@ -530,6 +546,7 @@
    "name": "Fortinbras",
    "duration": 5.5,
    "handheld": 0.8,
+   "follow": 0.6,
    "desc": "It coils around the throne; the crown topples; the flood reveals the bodies, and it settles",
    "panel": {
     "id": "fortinbras",
@@ -567,6 +584,7 @@
    "name": "Banner",
    "duration": 5.5,
    "handheld": 0.5,
+   "follow": 0.0,
    "silence": true,
    "desc": "The gold banner covers the rot without uprooting it; silence from here on",
    "camera": [
@@ -578,6 +596,7 @@
    "name": "Spill",
    "duration": 4.0,
    "handheld": 0.6,
+   "follow": 0.0,
    "desc": "Weeds and the Serpent's tail slide off the bottom edge onto the desk",
    "camera": [
     {"t": 0.0, "x": 0.5, "y": 0.5, "zoom": 1.0},
@@ -589,6 +608,7 @@
    "name": "Hold",
    "duration": 6.0,
    "handheld": 0.0,
+   "follow": 0.0,
    "hold": true,
    "desc": "Total stillness and silence until a key is pressed",
    "camera": [
