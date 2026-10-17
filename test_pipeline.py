@@ -628,7 +628,66 @@ def reveal_checks(cfg):
     check("missing reveal art disables the check instead of failing", load_art(missing) is None)
 
 
+def realism_checks(cfg):
+    from render import Source
+    renderer = Renderer(cfg)
+    rz = renderer.comp.realism
+    tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
+    board, Hb = Source(renderer, "board", None, FRAME).get()
+    still, Hs = Source(renderer, "still", None, FRAME).get()
+
+    def lit(H, truth):
+        L = rz.measure(board if truth else still, H)["light"]
+        gh, gw = L.shape[:2]
+        ys, xs = np.mgrid[0:gh, 0:gw]
+        cam = cv2.perspectiveTransform(np.stack([(xs + 0.5) * tw / gw, (ys + 0.5) * th / gh], -1).reshape(-1, 1, 2).astype(np.float64), H).reshape(gh, gw, 2)
+        rr = ((cam[..., 0] - FRAME[0] / 2) / FRAME[0]) ** 2 + ((cam[..., 1] - FRAME[1] / 2) / FRAME[1]) ** 2
+        want = 1.04 - 0.55 * rr - 0.06 * cam[..., 0] / FRAME[0] if truth else np.ones((gh, gw))
+        return float(np.abs(L.mean(axis=2) - want)[gh // 8:-gh // 8, gw // 8:-gw // 8].mean())
+
+    err_board, err_still = lit(Hb, True), lit(Hs, False)
+    check("the lighting map recovers the camera's falloff", err_board < 0.03, f"mean error {err_board:.3f}")
+    check("the lighting map is flat under flat light", err_still < 0.02, f"mean error {err_still:.3f}")
+    rng = np.random.default_rng(0)
+    noisy = np.clip(board.astype(np.float32) + rng.normal(0, 6.0, board.shape), 0, 255).astype(np.uint8)
+    clean_sigma, noisy_sigma = rz.measure(board, Hb)["grain"], rz.measure(noisy, Hb)["grain"]
+    check("grain matching measures the camera noise", clean_sigma < 1.5 and 4.0 < noisy_sigma < 8.0, f"{clean_sigma:.2f} clean, {noisy_sigma:.2f} at sigma 6")
+    levels = [rz.measure(cv2.GaussianBlur(still, (0, 0), x) if x else still, Hs)["level"] for x in (0.0, 1.0, 2.0)]
+    check("focus matching follows the camera's softness", levels == sorted(levels) and levels[-1] > levels[0], f"levels {levels}")
+    a, b = rz.measure(board, Hb), rz.measure(board, Hb)
+    check("offline realism is a pure function of the frame", np.array_equal(a["light"], b["light"]) and a["grain"] == b["grain"] and a["level"] == b["level"])
+    check("direct scan renders skip realism", rz.measure(board, Hb, True) is None)
+    renderer.set_live(True)
+    first = rz.measure(board, Hb)["light"].mean()
+    dark = (board * 0.7).astype(np.uint8)
+    for x in range(3):
+        last = rz.measure(dark, Hb)["light"].mean()
+    step = (first - last) / max(1e-6, first * 0.3)
+    check("live lighting eases toward a change with the EMA", 0.05 < step < 0.2, f"{step:.2f} of the change after one update")
+    renderer.set_live(False)
+
+    sc = renderer.scene
+    t = 62.0
+    ramp = (0.45 + 0.55 * np.arange(FRAME[0], dtype=np.float32) / FRAME[0])[None, :, None]
+    ramped = np.clip(board * ramp, 0, 255).astype(np.uint8)
+    ext = sc.extras(t)
+    out = renderer.comp.compose(ramped, Hb, np.eye(3), FRAME, *sc.layers(t), extra=ext)
+    renderer.comp.realism = None
+    flat = renderer.comp.compose(ramped, Hb, np.eye(3), FRAME, *sc.layers(t), extra=ext)
+    renderer.comp.realism = rz
+    ratio, want = [], []
+    for x in ("arras", "grave", "antic", "mousetrap"):
+        x0, y0, x1, y1 = next(y for y in sc.reveal.panels if y["id"] == x)["geo"]["rect"]
+        p = to_frame(Hb, cfg, (x0 + x1) / 2, y0 + (y1 - y0) * 0.35)
+        ratio.append(float(sample(out, p, 3).mean() / max(1.0, sample(flat, p, 3).mean())))
+        rr = ((p[0] - FRAME[0] / 2) / FRAME[0]) ** 2 + ((p[1] - FRAME[1] / 2) / FRAME[1]) ** 2
+        want.append((1.04 - 0.55 * rr - 0.06 * p[0] / FRAME[0]) * (0.45 + 0.55 * p[0] / FRAME[0]))
+    gap = float(np.max(np.abs(np.array(ratio) - np.array(want)) / np.array(want)))
+    check("revealed art takes the paper's lighting", gap < 0.1, f"lit/unlit {np.round(ratio, 2).tolist()} vs light {np.round(want, 2).tolist()}")
+
+
 def serpent_checks(cfg):
+    cfg = dict(cfg, fx=dict(cfg["fx"], realism=False))
     tl = Timeline(cfg)
     check("serpent sheet runs 77 s over 17 beats", abs(tl.end - 77.0) < 1e-6 and len(tl.beats) == 17, f"{tl.end} s, {len(tl.beats)} beats")
     check("the hold comes from its beat flag", abs(tl.hold_t - tl.at("S16")) < 1e-9, f"{tl.hold_t}")
@@ -764,6 +823,7 @@ def main():
     reveal_checks(tapestry)
     alignment_checks(tapestry)
     serpent_checks(default)
+    realism_checks(default)
     run(tapestry)
     run(load(str(ROOT / "beats_tapestry.json"), paper="letter"))
     old = load(str(ROOT / "beats.json"))

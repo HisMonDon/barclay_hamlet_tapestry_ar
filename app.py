@@ -35,6 +35,11 @@ class Renderer:
         self.comp = Compositor(cfg, self.scene, self.timeline)
         self.ow, self.oh = self.comp.ow, self.comp.oh
 
+    def set_live(self, live):
+        if self.comp.realism is not None:
+            self.comp.realism.live = live
+            self.comp.realism.state = {}
+
     def composite(self, frame, H, mult, over):
         return self.comp.composite(frame, H, mult, over)
 
@@ -86,6 +91,7 @@ def main():
             raise SystemExit(f"Unknown tone {args.tone!r}; choose from {', '.join(cfg['ink']['tones'])}")
         cfg["ink"]["tone"] = args.tone
     renderer = Renderer(cfg)
+    renderer.set_live(True)
     timeline = renderer.timeline
     tones = list(cfg["ink"]["tones"])
     quality = args.quality
@@ -153,6 +159,7 @@ def main():
                 fresh.tracker.H, fresh.tracker.quad = renderer.tracker.H, renderer.tracker.quad
                 fresh.track_count = renderer.track_count
                 fresh.comp.force_reveal = renderer.comp.force_reveal
+                fresh.set_live(True)
                 if fresh.cfg["ink"]["tone"] != controls.tone:
                     fresh.scene.set_tone(controls.tone)
                 renderer, quality = fresh, rebuild.name

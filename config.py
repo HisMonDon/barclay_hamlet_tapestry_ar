@@ -8,7 +8,7 @@ MM_PER_IN = 25.4
 SECTIONS = ("quality", "atmosphere", "lens", "motes", "sound", "camera_input", "backup_video", "cache_dir", "debug", "editor", "tracking", "performance",
             "source_mode", "assets")
 FX = {"sheen": True, "sheen_glow": True, "weed_shadow": True, "stitch_detail": True, "dof": True, "dof_levels": 2,
-      "dof_radial": True, "bloom": True, "motes": True, "splash": True}
+      "dof_radial": True, "bloom": True, "motes": True, "splash": True, "realism": True}
 
 
 def read(path):

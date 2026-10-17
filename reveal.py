@@ -58,6 +58,18 @@ def scale(a, m):
     return cv2.multiply(a, m, scale=1 / 255)
 
 
+def three(img):
+    return cv2.merge([img, img, img])
+
+
+def union(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
+
+
 def pack(k, arrays):
     return {f"{k}_{x}": arrays[x] for x in arrays}
 
@@ -92,15 +104,18 @@ class RevealEngine:
         self.geo = self._build(art, cache_dir)
         shape = (self.h, self.w)
         self.R8, self.I8, self.D8, self.V8, self.G8 = (np.zeros(shape, np.uint8) for x in range(5))
-        self.mult = np.full(shape + (3,), 255, np.uint8)
+        self.mult, self.Mp, self.Mb = (np.full(shape + (3,), 255, np.uint8) for x in range(3))
         self.add = np.zeros(shape + (3,), np.uint8)
+        self.levels = v.get("levels", 16)
         self.ghost_col = self.ghost_light * r.get("ghost_glow", 0.5)
         self.serpent = None
         if r.get("serpent") is not None:
             self.serpent = Serpent(cfg, Route(cfg, timeline), self.canvas, self._exclusion())
         self.keys = [None] * len(self.panels)
+        self.mkeys = [None] * len(self.panels)
         self.states = [("dormant", 0.0)] * len(self.panels)
         self.box = None
+        self.body = None
         self._t = None
         self._out = None
         self._luts()
@@ -157,7 +172,8 @@ class RevealEngine:
             m = raster(panel["geo"]["polygon"], w0, h0, 0.6)
             ys, xs = np.nonzero(m > 0.003)
             r0, r1, c0, c1 = int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
-            g = {"inner": (r0, r1, c0, c1), "roi": (r0 + c.pad, r1 + c.pad, c0 + c.pad, c1 + c.pad)}
+            g = {"inner": (r0, r1, c0, c1), "roi": (r0 + c.pad, r1 + c.pad, c0 + c.pad, c1 + c.pad),
+                 "box": (c0 + c.pad, r0 + c.pad, c1 + c.pad, r1 + c.pad)}
             mroi = m[r0:r1, c0:c1]
             g["mask8"] = np.clip(mroi * 255 + 0.5, 0, 255).astype(np.uint8)
             g["own"] = mroi > 0.003
@@ -310,6 +326,8 @@ class RevealEngine:
         self.lut_im = np.clip(255 * (1 - a[:, None] * (1 - col)) + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3)
         d = np.clip(255 * (1 - self.damp * a) + 0.5, 0, 255).astype(np.uint8)
         self.lut_dm = np.repeat(d[:, None], 3, axis=1).reshape(1, 256, 3)
+        ks = [self.vein_alpha + self.breath * math.sin(2 * math.pi * x / self.levels) for x in range(self.levels)] + [self.vein_alpha]
+        self.lut_vs = [np.clip(255 * (1 - a[:, None] * x * (1 - ink[None, :])) + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3) for x in ks]
 
     def phase(self, panel, t):
         times = panel["times"]
@@ -375,62 +393,81 @@ class RevealEngine:
         if panel["light"]:
             np.copyto(self.G8[sl], scale(G, m8), where=g["own"])
 
+    def _level(self, k, t):
+        return int(math.floor(self.levels * (t / self.period + 0.37 * k))) % self.levels
+
+    def _panel_mult(self, k, level):
+        r0, r1, c0, c1 = self.geo[k]["roi"]
+        i, v, d = self.I8[r0:r1, c0:c1], self.V8[r0:r1, c0:c1], self.D8[r0:r1, c0:c1]
+        self.Mp[r0:r1, c0:c1] = scale(scale(cv2.LUT(three(i), self.lut_im), cv2.LUT(three(v), self.lut_vs[level])), cv2.LUT(three(d), self.lut_dm))
+
+    def _compose(self, rect, sv):
+        x0, y0, x1, y1 = rect
+        m = scale(self.Mp[y0:y1, x0:x1], self.Mb[y0:y1, x0:x1])
+        a = self._tint(self.G8[y0:y1, x0:x1], self.ghost_col)
+        if sv is not None:
+            sx0, sy0, sx1, sy1 = sv["roi"]
+            ix0, iy0, ix1, iy1 = max(x0, sx0), max(y0, sy0), min(x1, sx1), min(y1, sy1)
+            if ix1 > ix0 and iy1 > iy0:
+                here = (slice(iy0 - y0, iy1 - y0), slice(ix0 - x0, ix1 - x0))
+                there = (slice(iy0 - sy0, iy1 - sy0), slice(ix0 - sx0, ix1 - sx0))
+                m[here] = scale(m[here], sv["mult"][there])
+                a[here] = cv2.add(a[here], sv["add"][there])
+        self.mult[y0:y1, x0:x1] = m
+        self.add[y0:y1, x0:x1] = a
+
     def layers(self, t):
         if self._t == t:
             return self._out
-        box, glow = None, False
+        dirty = []
+        box = rbox = abox = None
         for x in range(len(self.panels)):
-            phase, p = self.phase(self.panels[x], t)
+            panel, g = self.panels[x], self.geo[x]
+            phase, p = self.phase(panel, t)
             self.states[x] = (phase, p)
             self._render(x, phase, p)
+            level = self._level(x, t) if phase in ("recede", "settled") and not panel["light"] else 0
+            if (self.keys[x], level) != self.mkeys[x]:
+                self.mkeys[x] = (self.keys[x], level)
+                self._panel_mult(x, level)
+                dirty.append(g["box"])
             if phase != "dormant":
-                r0, r1, c0, c1 = self.geo[x]["roi"]
-                box = (c0, r0, c1, r1) if box is None else (min(box[0], c0), min(box[1], r0), max(box[2], c1), max(box[3], r1))
-            glow = glow or (self.panels[x]["light"] and phase == "flood")
-        sv = self.serpent.render(t) if self.serpent is not None else None
-        blots = self.serpent.residue(t) if self.serpent is not None else None
-        for x in (sv["roi"] if sv is not None else None, blots):
-            if x is not None:
-                box = x if box is None else (min(box[0], x[0]), min(box[1], x[1]), max(box[2], x[2]), max(box[3], x[3]))
-        if self.box is not None and box != self.box:
-            x0, y0, x1, y1 = self.box
-            self.mult[y0:y1, x0:x1] = 255
-            self.add[y0:y1, x0:x1] = 0
-        lit = False
-        if box is not None:
-            x0, y0, x1, y1 = box
-            i, v, d = self.I8[y0:y1, x0:x1].copy(), self.V8[y0:y1, x0:x1].copy(), self.D8[y0:y1, x0:x1].copy()
-            h = np.zeros_like(i)
-            a = np.zeros(i.shape + (3,), np.uint8)
-            if blots is not None:
-                np.maximum(v, self.serpent.B8[y0:y1, x0:x1], out=v)
-            if glow:
-                a = cv2.add(a, self._tint(self.G8[y0:y1, x0:x1], self.ghost_col))
-                lit = True
+                box = union(box, g["box"])
+            if phase not in ("dormant", "breach"):
+                rbox = union(rbox, g["box"])
+            if panel["light"] and phase == "flood":
+                abox = union(abox, g["box"])
+        sv = None
+        if self.serpent is not None:
+            sp = self.serpent
+            sv = sp.render(t)
             if sv is not None:
-                sx0, sy0, sx1, sy1 = sv["roi"]
-                sub = (slice(sy0 - y0, sy1 - y0), slice(sx0 - x0, sx1 - x0))
-                np.maximum(i[sub], sv["I"], out=i[sub])
-                np.maximum(d[sub], sv["D"], out=d[sub])
-                h[sub] = sv["H"]
-                a[sub] = cv2.add(a[sub], cv2.add(self._tint(sv["S"], self.serpent.sheen_col), self._tint(sv["G"], self.serpent.glint_col)))
-                lit = True
-            k = self.vein_alpha + self.breath * math.sin(2 * math.pi * t / self.period)
-            ramp = np.arange(256, dtype=np.float64)[:, None] / 255.0
-            lut_v = np.clip(255 * (1 - ramp * k * (1 - self.ink[None, :])) + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3)
-            three = lambda img: cv2.merge([img, img, img])
-            m = scale(scale(cv2.LUT(three(i), self.lut_im), cv2.LUT(three(v), lut_v)), cv2.LUT(three(d), self.lut_dm))
-            self.mult[y0:y1, x0:x1] = scale(m, cv2.bitwise_not(three(h)))
-            self.add[y0:y1, x0:x1] = a
-        self.box = box
+                sv["mult"] = scale(scale(cv2.LUT(three(sv["I"]), self.lut_im), cv2.LUT(three(sv["D"]), self.lut_dm)), cv2.bitwise_not(three(sv["H"])))
+                sv["add"] = cv2.add(self._tint(sv["S"], sp.sheen_col), self._tint(sv["G"], sp.glint_col))
+                box, abox = union(box, sv["roi"]), union(abox, sv["roi"])
+                dirty.append(sv["roi"])
+            if self.body is not None:
+                dirty.append(self.body["roi"])
+            before, old = sp.blot_key, sp.blot_box
+            blots = sp.residue(t)
+            if sp.blot_key != before:
+                changed = union(old, blots)
+                if changed is not None:
+                    x0, y0, x1, y1 = changed
+                    self.Mb[y0:y1, x0:x1] = cv2.LUT(three(sp.B8[y0:y1, x0:x1]), self.lut_vs[-1])
+                    dirty.append(changed)
+            box = union(box, blots)
+        for x in dirty:
+            self._compose(x, sv)
         self.body = sv
-        self._out = {"R": self.R8, "mult": self.mult, "add": self.add if lit else None, "box": box}
+        self.box = box
+        self._out = {"R": self.R8, "mult": self.mult, "add": self.add if abox is not None else None, "box": box, "rbox": rbox, "abox": abox, "t": t}
         self._t = t
         return self._out
 
     @staticmethod
     def _tint(img, col):
-        return cv2.multiply(cv2.merge([img, img, img]), tuple(float(x) for x in col) + (0.0,), scale=1 / 255)
+        return cv2.multiply(three(img), tuple(float(x) for x in col) + (0.0,), scale=1 / 255)
 
     def sound_events(self):
         s = self.p.get("sounds", {})

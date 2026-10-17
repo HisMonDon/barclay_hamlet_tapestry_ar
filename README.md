@@ -100,6 +100,18 @@ The Serpent (`serpent.py`) is born at the first panel's entry, travels along the
 
 `delay` is seconds from the beat start; `phases` are fractions of the rest of the beat, and whatever remains is SETTLED. During FLOOD the ink front leads the reveal by at least 0.15 s and the reveal finishes under the ink before RECEDE drains toward the exit, so no moving edge between clean and corrupt is ever uncovered. Residue veins stay along the drain channel and creep in from the corners. `"mode": "light"` (the ghost) reveals with a cool light wipe and no ink. Panel outlines come from `assets/panels.json`. Ink colours, widths, vein and cost settings live in the beat file's `reveal` block; `quality.<preset>.reveal_width` sets the mask resolution (550 live, 1100 render).
 
+### Matching the camera
+
+`realism.py` keeps the revealed art from looking pasted on. Each frame it measures the paper as the camera sees it:
+
+- **Lighting:** a low-resolution map of the camera's view of the paper divided by `clean_ref`, blurred and clamped to 0.5-1.6, carries shadows, falloff and white balance onto the revealed art.
+- **Grain:** camera noise is measured on the flattest patch of paper (minus the print's own texture) and matched with noise from a fixed bank indexed by frame time.
+- **Focus:** the camera's sharpness on a textured patch is compared with the clean art at several blur levels, and the corrupt art is drawn from the matching pre-blurred level.
+
+In the live app the measurements ease in with a temporal EMA and take turns across frames; offline and backup renders measure every frame, so a given frame and `t` always render identically. Renders that paint the scan directly (`direct_scan`) skip realism, since their paper is unlit. Settings live under `reveal.realism` in the beat file; `fx.realism` turns it off per preset.
+
+`benchmark.py` reports `reveal_ms` and `reveal_p95_ms` per segment: the reveal layers, the realism measurements and the reveal composite together. The budget is 12 ms on the presentation laptop.
+
 ## Remap the real drawing
 
 Crop and straighten the scan to the drawing edges, with no board or desk inside it, then run:

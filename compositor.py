@@ -8,6 +8,7 @@ from timeline import Timeline
 from atmosphere import Atmosphere
 from lens import Lens
 from particles import Motes
+from realism import Realism
 
 INV = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
 
@@ -66,6 +67,11 @@ class Compositor:
             self.set_reveal_art(art)
         rv = getattr(scene, "reveal", None)
         self.rev_inv = np.linalg.inv(rv.canvas.to_tapestry()) if rv is not None else None
+        self.realism = None
+        if rv is not None and getattr(scene, "clean_ref", None) is not None:
+            self.realism = Realism(cfg, scene.clean_ref, art, self.work, [x["geo"] for x in rv.panels])
+        ink = getattr(scene, "ink", None)
+        self.ink_live = ink is None or bool(np.isfinite(ink.T).any()) or ink.has_ghost
 
     def set_source_artwork(self, image):
         self.source_artwork = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
@@ -76,23 +82,47 @@ class Compositor:
         self.reveal_bgr = image
         self.reveal_inv = np.diag([image.shape[1] / self.tw, image.shape[0] / self.th, 1.0])
 
-    def _reveal(self, out, rv, Mt, size):
+    @staticmethod
+    def _lerp(part, art, R):
+        _, solid = cv2.threshold(R, 127, 255, cv2.THRESH_BINARY)
+        cv2.copyTo(art, solid, part)
+
+    def _light(self, art, L, Mt, roi):
+        x0, y0, x1, y1 = roi
+        gh, gw = L.shape[:2]
+        cw, ch = max(2, (x1 - x0) // 8), max(2, (y1 - y0) // 8)
+        Sc = np.array([[(x1 - x0) / cw, 0, x0], [0, (y1 - y0) / ch, y0], [0, 0, 1]], np.float64)
+        G = np.diag([gw / self.tw, gh / self.th, 1.0]) @ Mt @ Sc
+        L8 = np.clip(L * 127.5 + 0.5, 0, 255).astype(np.uint8)
+        small = cv2.warpPerspective(L8, G, (cw, ch), flags=INV, borderMode=cv2.BORDER_REPLICATE)
+        return cv2.multiply(art, cv2.resize(small, (x1 - x0, y1 - y0), interpolation=cv2.INTER_LINEAR), scale=1 / 127.5)
+
+    def _reveal(self, out, rv, Mt, size, meas=None, cam_scale=1.0):
         w, h = size
         Mr = self.rev_inv @ Mt
-        roi = self._roi(rv["box"], Mr, w, h)
-        if roi is None:
-            return out
-        x0, y0, x1, y1 = roi
-        part = out[y0:y1, x0:x1]
-        R = self._warp_roi(rv["R"], Mr, roi, 0)
-        if int(R.max()) > 0:
-            art = self._warp_roi(self.reveal_bgr, self.reveal_inv @ Mt, roi, (0, 0, 0))
-            R3 = cv2.merge([R, R, R])
-            part = cv2.add(cv2.multiply(part, cv2.bitwise_not(R3), scale=1 / 255), cv2.multiply(art, R3, scale=1 / 255))
-        part = cv2.multiply(part, self._warp_roi(rv["mult"], Mr, roi, (255, 255, 255)), scale=1 / 255)
-        if rv.get("add") is not None:
-            part = cv2.add(part, self._warp_roi(rv["add"], Mr, roi, (0, 0, 0)))
-        out[y0:y1, x0:x1] = part
+        roi = self._roi(rv["rbox"], Mr, w, h) if rv.get("rbox") is not None else None
+        if roi is not None:
+            x0, y0, x1, y1 = roi
+            R = self._warp_roi(rv["R"], Mr, roi, 0)
+            if int(R.max()) > 0:
+                src = self.realism.art_levels[meas["level"]] if meas is not None else self.reveal_bgr
+                art = self._warp_roi(src, self.reveal_inv @ Mt, roi, (0, 0, 0))
+                if meas is not None:
+                    art = self._light(art, meas["light"], Mt, roi)
+                    if meas["grain"] > 1.0:
+                        k = meas["grain"] / 32.0
+                        art = cv2.addWeighted(art, 1.0, self.realism.noise(rv["t"], cam_scale, size)[y0:y1, x0:x1], k, -128.0 * k)
+                self._lerp(out[y0:y1, x0:x1], art, R)
+        roi = self._roi(rv["box"], Mr, w, h) if rv.get("box") is not None else None
+        if roi is not None:
+            x0, y0, x1, y1 = roi
+            part = out[y0:y1, x0:x1]
+            cv2.multiply(part, self._warp_roi(rv["mult"], Mr, roi, (255, 255, 255)), dst=part, scale=1 / 255)
+        roi = self._roi(rv["abox"], Mr, w, h) if rv.get("add") is not None else None
+        if roi is not None:
+            x0, y0, x1, y1 = roi
+            part = out[y0:y1, x0:x1]
+            cv2.add(part, self._warp_roi(rv["add"], Mr, roi, (0, 0, 0)), dst=part)
         return out
 
     def debug(self, out):
@@ -196,10 +226,13 @@ class Compositor:
         if self.force_reveal and self.reveal_art is not None:
             out = self._paint(out, self.reveal_art, self.reveal_inv @ Mt, (w, h))
         elif extra and extra.get("reveal") is not None and self.reveal_bgr is not None:
-            out = self._reveal(out, extra["reveal"], Mt, (w, h))
-        ink = cv2.warpPerspective(mult, self.mult_inv @ Mt, (w, h), flags=INV,
-                                  borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-        out = cv2.multiply(out, ink, scale=1.0 / 255.0)
+            meas = self.realism.measure(frame, H, self.source_artwork is not None) if self.realism is not None else None
+            cam_scale = 1.0 / max(1e-6, math.sqrt(abs(np.linalg.det(M[:2, :2]))))
+            out = self._reveal(out, extra["reveal"], Mt, (w, h), meas, cam_scale)
+        if self.ink_live:
+            ink = cv2.warpPerspective(mult, self.mult_inv @ Mt, (w, h), flags=INV,
+                                      borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+            out = cv2.multiply(out, ink, scale=1.0 / 255.0)
         if extra:
             spec = extra.get("spec")
             if spec is not None:
