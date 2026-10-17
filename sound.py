@@ -65,6 +65,14 @@ def synthesize(name, rate, settings):
         env = (0.5 + 0.5 * np.sin(t * 2.1 + 0.8 * np.sin(t * 4.3))) ** 4
         phase = 2 * np.pi * (95 * t + 2 * np.sin(t * 2.6))
         data = (np.sin(phase) + 0.3 * np.sin(phase * 2.03)) * env * 0.12 + low * 0.2
+    elif name == "slither":
+        hiss = cv2.GaussianBlur(noise[:, None], (1, 0), max(1, rate / 4000))[:, 0]
+        swell = 0.6 + 0.4 * np.sin(2 * np.pi * 0.9 * t + 1.3 * np.sin(2 * np.pi * 0.23 * t)) ** 2
+        data = (0.5 * low + 0.25 * hiss) * swell
+        for x in range(max(1, round(duration * 5))):
+            start = int(rng.integers(count))
+            n = min(count - start, round(rate * rng.uniform(0.01, 0.03)))
+            data[start:start + n] += low[start:start + n] * np.exp(-np.arange(n) / max(1, n / 4)) * 0.6
     elif name == "inhale":
         p = np.clip(t / max(0.001, duration), 0, 1)
         air = cv2.GaussianBlur(noise[:, None], (1, 0), max(1, rate / 9000))[:, 0]
@@ -139,6 +147,8 @@ class Soundtrack:
             ramp_end = timeline.at(cue.get("ramp_until", cue.get("until", self.end)), cue.get("ramp_offset", 0))
             progress = np.clip(times / max(1e-6, ramp_end - t0), 0, 1)
             gain += (cue["gain_to"] - cue.get("gain", 1.0)) * progress
+        if "envelope" in cue:
+            gain *= cue["envelope"](t0 + times)
         self.samples[start:stop] += played * gain
         self.events.append((cue["sound"], t0, stop / self.rate))
 

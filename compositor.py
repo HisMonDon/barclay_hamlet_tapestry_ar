@@ -66,7 +66,6 @@ class Compositor:
             self.set_reveal_art(art)
         rv = getattr(scene, "reveal", None)
         self.rev_inv = np.linalg.inv(rv.canvas.to_tapestry()) if rv is not None else None
-        self.glow_col = tuple(float(x) for x in rv.ghost_light * rv.p.get("ghost_glow", 0.75)) + (0.0,) if rv is not None else None
 
     def set_source_artwork(self, image):
         self.source_artwork = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
@@ -91,9 +90,8 @@ class Compositor:
             R3 = cv2.merge([R, R, R])
             part = cv2.add(cv2.multiply(part, cv2.bitwise_not(R3), scale=1 / 255), cv2.multiply(art, R3, scale=1 / 255))
         part = cv2.multiply(part, self._warp_roi(rv["mult"], Mr, roi, (255, 255, 255)), scale=1 / 255)
-        if rv.get("glow") is not None:
-            g = self._warp_roi(rv["glow"], Mr, roi, 0)
-            part = cv2.add(part, cv2.multiply(cv2.merge([g, g, g]), self.glow_col, scale=1 / 255))
+        if rv.get("add") is not None:
+            part = cv2.add(part, self._warp_roi(rv["add"], Mr, roi, (0, 0, 0)))
         out[y0:y1, x0:x1] = part
         return out
 
@@ -121,6 +119,16 @@ class Compositor:
             label = panel["id"] + ("" if phase in ("dormant", "settled") else f" {phase} {p:.2f}")
             cv2.putText(out, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 0), 3, cv2.LINE_AA)
             cv2.putText(out, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.42, col, 1, cv2.LINE_AA)
+        sp = getattr(rv, "serpent", None)
+        if sp is not None:
+            path = sp.path
+            to_out = lambda xy: cv2.perspectiveTransform((xy * [self.tw, self.th / path.aspect])[None].astype(np.float64), P)[0]
+            cv2.polylines(out, [np.round(to_out(path.xy[::6])).astype(np.int32)], False, (70, 70, 200), 1, cv2.LINE_AA)
+            for x in to_out(np.array(path.pts) * [1.0, path.aspect])[np.array(path.stop)]:
+                cv2.circle(out, (int(round(x[0])), int(round(x[1]))), 4, (70, 70, 220), 1, cv2.LINE_AA)
+            sk = sp.skeleton(t)
+            if sk is not None:
+                cv2.polylines(out, [np.round(to_out(sk)).astype(np.int32)], False, (120, 255, 120), 2, cv2.LINE_AA)
         return out
 
     @staticmethod

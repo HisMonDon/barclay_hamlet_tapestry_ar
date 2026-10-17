@@ -650,9 +650,11 @@ def serpent_checks(cfg):
     for x in np.arange(0.0, tl.end + 1e-6, 0.05):
         L = rv.layers(float(x))
         R = L["R"]
-        G = L["glow"] if L["glow"] is not None else np.zeros_like(R)
-        naked += int(np.sum(interior & (R > 5) & (R < 250) & (rv.I8 < full) & (G < 229)))
+        naked += int(np.sum(interior & (R > 5) & (R < 250) & (rv.I8 < full) & (rv.G8 < 229)))
         inked += int(np.sum(ghost & ((rv.I8 > 0) | (rv.D8 > 0))))
+        if rv.body is not None:
+            bx0, by0, bx1, by1 = rv.body["roi"]
+            inked += int(np.sum(ghost[by0:by1, bx0:bx1] & ((rv.body["I"] > 0) | (rv.body["D"] > 0))))
         if prev is not None:
             dropped += int(np.sum(R.astype(np.int16) < prev.astype(np.int16) - 1))
         prev = R.copy()
@@ -698,6 +700,51 @@ def serpent_checks(cfg):
     check("silence from the banner beat on", abs(track.silence - banner) < 1e-9 and np.count_nonzero(track.samples[round(banner * track.rate):]) == 0)
     wipe = rv.panels[1]["times"]
     check("nothing sounds during the ghost light-wipe", np.count_nonzero(track.samples[round(wipe[0] * track.rate):round(wipe[4] * track.rate)]) == 0)
+    throne = rv.panels[2]["times"]
+    moving = float(np.abs(track.samples[round(7.0 * track.rate):round(8.0 * track.rate)]).max())
+    pouring = float(np.abs(track.samples[round((throne[1] + 0.3) * track.rate):round((throne[2] - 0.2) * track.rate)]).max())
+    check("the slither sounds while the Serpent moves and stops while it pours", moving > 1e-3 and pouring < 1e-5, f"peak {moving:.4f} / {pouring:.1e}")
+    serpent_checks_motion(cfg, renderer)
+
+
+def serpent_checks_motion(cfg, renderer):
+    from render import Source
+    rv = renderer.scene.reveal
+    path = rv.serpent.path
+    worst = 0.0
+    for x in (7.4, 9.5, 11.0, 45.0):
+        st = path.state(x)
+        if not st["visible"]:
+            continue
+        body = path.at(np.linspace(st["tail"], st["head"], 80))
+        heads = np.array(list(map(lambda v: path.state(v)["head"], np.arange(x - 5.0, x + 1e-9, 1 / 1000))))
+        trail = path.at(heads)
+        d = np.sqrt(((body[:, None, :] - trail[None, :, :]) ** 2).sum(-1)).min(axis=1)
+        worst = max(worst, float(d.max()) * rv.canvas.w0)
+    check("the Serpent's body follows its head's track", worst < 0.5, f"max {worst:.3f} canvas px off the track")
+
+    tw, th = cfg["tapestry"]["width"], cfg["tapestry"]["height"]
+    src = Source(renderer, "still", None, FRAME)
+    frame, H = src.get()
+    sc = renderer.scene
+    t = 11.0
+    extra = dict(sc.extras(t))
+    extra["reveal"] = dict(extra["reveal"], add=None)
+    out = renderer.comp.compose(frame, H, H, (tw, th), *sc.layers(t), extra=extra)
+    art = cv2.warpPerspective(frame, H, (tw, th), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+    x0, y0, x1, y1 = rv.body["roi"]
+    k = tw / rv.canvas.w0
+    mask = np.zeros((th, tw), bool)
+    big = cv2.resize(rv.body["I"], (int(round((x1 - x0) * k)), int(round((y1 - y0) * k))), interpolation=cv2.INTER_NEAREST) > 235
+    oy, ox = int(round(y0 * k)), int(round(x0 * k))
+    bh, bw = min(big.shape[0], th - oy), min(big.shape[1], tw - ox)
+    mask[oy:oy + bh, ox:ox + bw] = big[:bh, :bw]
+    mask = cv2.erode(mask.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    g_out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)[mask].astype(np.float64)
+    g_art = cv2.cvtColor(art, cv2.COLOR_BGR2GRAY)[mask].astype(np.float64)
+    corr = float(np.corrcoef(g_out, g_art)[0, 1])
+    check("the Serpent's ink lets the paper show through (multiply, not a fill)", mask.sum() > 200 and corr > 0.5 and g_out.mean() < 0.2 * g_art.mean(),
+          f"{int(mask.sum())} px, corr {corr:.2f}, {g_out.mean():.0f} vs {g_art.mean():.0f}")
 
 
 def main():

@@ -13,6 +13,16 @@ def rect_polygon(r):
     return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
 
 
+PHASES = ("breach", "flood", "blink", "recede")
+
+
+def phase_times(start, avail, fractions):
+    out = [start]
+    for x in PHASES:
+        out.append(out[-1] + avail * fractions.get(x, 0.0))
+    return out
+
+
 def hold_time(beats):
     k = next((x for x in range(len(beats)) if beats[x].get("hold")), None)
     if k is None:
@@ -101,6 +111,13 @@ class Timeline:
     def seeds(self):
         for s, t0, _ in self.items("seeds"):
             yield self.resolve(s), t0
+
+    def panels(self):
+        for x in range(len(self.beats)):
+            spec = self.beats[x].get("panel")
+            if spec:
+                delay = spec.get("delay", 0.0)
+                yield spec, phase_times(self.starts[x] + delay, self.beats[x]["duration"] - delay, spec.get("phases", {})), x
 
     def weaves(self):
         for w, t0, _ in self.items("weaves"):

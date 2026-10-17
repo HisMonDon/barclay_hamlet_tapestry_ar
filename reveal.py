@@ -9,6 +9,7 @@ import numpy as np
 from config import read, resolve
 from fields import BIG, geodesic, line_map, raster, ridged, warped_noise
 from ink import Canvas, hex_bgr, smoothstep
+from serpent import Route, Serpent
 
 ORDER = ("breach", "flood", "blink", "recede")
 FIELDS = ("tin", "tout", "vd", "vc", "tc")
@@ -92,6 +93,11 @@ class RevealEngine:
         shape = (self.h, self.w)
         self.R8, self.I8, self.D8, self.V8, self.G8 = (np.zeros(shape, np.uint8) for x in range(5))
         self.mult = np.full(shape + (3,), 255, np.uint8)
+        self.add = np.zeros(shape + (3,), np.uint8)
+        self.ghost_col = self.ghost_light * r.get("ghost_glow", 0.5)
+        self.serpent = None
+        if r.get("serpent") is not None:
+            self.serpent = Serpent(cfg, Route(cfg, timeline), self.canvas, self._exclusion())
         self.keys = [None] * len(self.panels)
         self.states = [("dormant", 0.0)] * len(self.panels)
         self.box = None
@@ -101,20 +107,23 @@ class RevealEngine:
 
     def _schedule(self, timeline, geometry):
         out = []
-        for x in range(len(timeline.beats)):
-            b = timeline.beats[x]
-            spec = b.get("panel")
-            if not spec:
-                continue
-            avail = b["duration"] - spec.get("delay", 0.0)
-            times = [timeline.starts[x] + spec.get("delay", 0.0)]
-            for k in ORDER:
-                times.append(times[-1] + avail * spec.get("phases", {}).get(k, 0.0))
+        for x in timeline.panels():
+            spec, times, beat = x
+            b = timeline.beats[beat]
             light = spec.get("mode") == "light"
             lag = self._lag(times[2] - times[1])
             U = 1 + self.rw + 0.16 if light else 1 + lag + self.rw
             out.append({"id": spec["id"], "beat": b.get("id"), "spec": spec, "geo": geometry[spec["id"]], "light": light,
                         "times": times, "lag": lag, "U": U})
+        return out
+
+    def _exclusion(self):
+        out = np.zeros((self.h, self.w), np.uint8)
+        for x in range(len(self.panels)):
+            if self.panels[x]["light"]:
+                r0, r1, c0, c1 = self.geo[x]["roi"]
+                g = cv2.dilate(np.where(self.geo[x]["own"], 255, 0).astype(np.uint8), np.ones((3, 3), np.uint8))
+                np.maximum(out[r0:r1, c0:c1], g, out=out[r0:r1, c0:c1])
         return out
 
     def _lag(self, flood_s):
@@ -378,23 +387,50 @@ class RevealEngine:
                 r0, r1, c0, c1 = self.geo[x]["roi"]
                 box = (c0, r0, c1, r1) if box is None else (min(box[0], c0), min(box[1], r0), max(box[2], c1), max(box[3], r1))
             glow = glow or (self.panels[x]["light"] and phase == "flood")
+        sv = self.serpent.render(t) if self.serpent is not None else None
+        blots = self.serpent.residue(t) if self.serpent is not None else None
+        for x in (sv["roi"] if sv is not None else None, blots):
+            if x is not None:
+                box = x if box is None else (min(box[0], x[0]), min(box[1], x[1]), max(box[2], x[2]), max(box[3], x[3]))
         if self.box is not None and box != self.box:
             x0, y0, x1, y1 = self.box
             self.mult[y0:y1, x0:x1] = 255
+            self.add[y0:y1, x0:x1] = 0
+        lit = False
         if box is not None:
             x0, y0, x1, y1 = box
+            i, v, d = self.I8[y0:y1, x0:x1].copy(), self.V8[y0:y1, x0:x1].copy(), self.D8[y0:y1, x0:x1].copy()
+            h = np.zeros_like(i)
+            a = np.zeros(i.shape + (3,), np.uint8)
+            if blots is not None:
+                np.maximum(v, self.serpent.B8[y0:y1, x0:x1], out=v)
+            if glow:
+                a = cv2.add(a, self._tint(self.G8[y0:y1, x0:x1], self.ghost_col))
+                lit = True
+            if sv is not None:
+                sx0, sy0, sx1, sy1 = sv["roi"]
+                sub = (slice(sy0 - y0, sy1 - y0), slice(sx0 - x0, sx1 - x0))
+                np.maximum(i[sub], sv["I"], out=i[sub])
+                np.maximum(d[sub], sv["D"], out=d[sub])
+                h[sub] = sv["H"]
+                a[sub] = cv2.add(a[sub], cv2.add(self._tint(sv["S"], self.serpent.sheen_col), self._tint(sv["G"], self.serpent.glint_col)))
+                lit = True
             k = self.vein_alpha + self.breath * math.sin(2 * math.pi * t / self.period)
-            a = np.arange(256, dtype=np.float64)[:, None] / 255.0
-            lut_v = np.clip(255 * (1 - a * k * (1 - self.ink[None, :])) + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3)
+            ramp = np.arange(256, dtype=np.float64)[:, None] / 255.0
+            lut_v = np.clip(255 * (1 - ramp * k * (1 - self.ink[None, :])) + 0.5, 0, 255).astype(np.uint8).reshape(1, 256, 3)
             three = lambda img: cv2.merge([img, img, img])
-            i = cv2.LUT(three(self.I8[y0:y1, x0:x1]), self.lut_im)
-            v = cv2.LUT(three(self.V8[y0:y1, x0:x1]), lut_v)
-            d = cv2.LUT(three(self.D8[y0:y1, x0:x1]), self.lut_dm)
-            self.mult[y0:y1, x0:x1] = scale(scale(i, v), d)
+            m = scale(scale(cv2.LUT(three(i), self.lut_im), cv2.LUT(three(v), lut_v)), cv2.LUT(three(d), self.lut_dm))
+            self.mult[y0:y1, x0:x1] = scale(m, cv2.bitwise_not(three(h)))
+            self.add[y0:y1, x0:x1] = a
         self.box = box
-        self._out = {"R": self.R8, "mult": self.mult, "glow": self.G8 if glow else None, "box": box}
+        self.body = sv
+        self._out = {"R": self.R8, "mult": self.mult, "add": self.add if lit else None, "box": box}
         self._t = t
         return self._out
+
+    @staticmethod
+    def _tint(img, col):
+        return cv2.multiply(cv2.merge([img, img, img]), tuple(float(x) for x in col) + (0.0,), scale=1 / 255)
 
     def sound_events(self):
         s = self.p.get("sounds", {})
@@ -407,7 +443,18 @@ class RevealEngine:
                 out.append((s["breach"], tb))
             if "blink" in s and tr > tk:
                 out.append((s["blink"], tk))
+        if self.serpent is not None and "slither" in s:
+            cue = dict(s["slither"], loop=True, until=self.serpent.path.t_end, envelope=self.slither)
+            out.append((cue, self.serpent.path.t_birth))
         return out
+
+    def slither(self, times):
+        path = self.serpent.path
+        g = np.clip(path.speed(times) / self.p.get("serpent", {}).get("slither_speed", 0.12), 0, 1) ** 0.7
+        for x in self.panels:
+            if x["light"]:
+                g = np.where((times >= x["times"][0]) & (times < x["times"][4]), 0.0, g)
+        return g.astype(np.float32)
 
     def heat(self, t):
         out = np.zeros((self.h, self.w, 4), np.uint8)

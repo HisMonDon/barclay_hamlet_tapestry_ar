@@ -66,7 +66,7 @@
    "seed": 19,
    "edge_s": 0.008,
    "crackle_density": 9,
-   "durations": {"crackle": 4.0, "drip": 0.6, "seep": 6.0, "creak": 6.0, "shuttle": 0.3, "inhale": 0.9}
+   "durations": {"crackle": 4.0, "drip": 0.6, "seep": 6.0, "creak": 6.0, "shuttle": 0.3, "inhale": 0.9, "slither": 4.0}
   },
   "export_codec": "alac"
  },

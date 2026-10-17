@@ -96,6 +96,8 @@ A panel beat carries a `panel` block:
           "entry": [0.144, 0.202], "exit": [0.33, 0.11], "speed_mul": 1.0, "gravity": 0.0, "entry_object": [[[x, y], ...]]}
 ```
 
+The Serpent (`serpent.py`) is born at the first panel's entry, travels along the gold pillars and frame bands on the `serpent.route` of each panel beat, pauses and swells at each BREACH, pours itself into the FLOOD, and re-forms at the exit as the ink drains into it. Its path is a centripetal Catmull-Rom spline through the waypoints with the lateral S-wave baked in (`amplitude_px`, `wavelength_px`, per-beat `wave` multipliers), so the body follows the head's own track. The body is a variable-width SDF with a scrolling-noise edge, drop shadow, damp halo, a tailward sheen, a poison glint at breaches and birth, capillaries bleeding into the fibres, and droplets that stay behind as residue. The last panel beat's `settle` waypoints coil it up at rest. All of it is a function of `t`.
+
 `delay` is seconds from the beat start; `phases` are fractions of the rest of the beat, and whatever remains is SETTLED. During FLOOD the ink front leads the reveal by at least 0.15 s and the reveal finishes under the ink before RECEDE drains toward the exit, so no moving edge between clean and corrupt is ever uncovered. Residue veins stay along the drain channel and creep in from the corners. `"mode": "light"` (the ghost) reveals with a cool light wipe and no ink. Panel outlines come from `assets/panels.json`. Ink colours, widths, vein and cost settings live in the beat file's `reveal` block; `quality.<preset>.reveal_width` sets the mask resolution (550 live, 1100 render).
 
 ## Remap the real drawing
