@@ -66,11 +66,16 @@ class VideoWriter:
 
 
 def load_source(cfg, path):
-    p = resolve(cfg, path or cfg.get("scan", "assets/reference_tapestry.png"))
+    configured_scan = cfg.get("scan")
+    source = path if path is not None else configured_scan
+    p = resolve(cfg, source or "assets/reference_tapestry.png")
     img = cv2.imread(str(p), cv2.IMREAD_COLOR)
     if img is None:
-        if path is not None:
-            raise ValueError(f"Could not read source image: {p}")
+        if path is not None or configured_scan:
+            raise ValueError(
+                f"Could not read source image: {p}. "
+                "Check the beat file's 'scan' path or supply a readable image with --source."
+            )
         img, _ = reference.render_tapestry(cfg)
     return img
 

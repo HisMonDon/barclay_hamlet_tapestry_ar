@@ -2,7 +2,7 @@
 
 A camera tracks four ArUco markers around a hand-drawn Hamlet tapestry. Ink follows the corruption through the play, embroidered weeds emerge from soaked ink, and a gold banner covers the darkness without removing it. At the end, weeds cross onto the desk, the view opens to the whole camera frame, and the image holds in silence.
 
-The default `beats_v2.json` contains B01-B21, 75 seconds and camera keys for every beat. The original `beats.json` is preserved. The included reference is a schematic stand-in; all scene coordinates remain provisional until mapped onto the real scan.
+The default `beats_tapestry.json` uses the supplied artwork in `assets/hamlet_tapestry.png`, with B01-B21, 75 seconds and camera keys for every beat. Panel regions, effect anchors and close-ups are mapped to this image. The original `beats.json`, schematic `beats_v2.json` and `assets/reference_tapestry.png` are preserved.
 
 ## Install and run on Windows
 
@@ -38,7 +38,7 @@ B21 freezes the image and silences audio from 65 seconds. It remains on screen a
 ## Render the backup and review it
 
 ```powershell
-.\.venv\Scripts\python.exe render.py --mode board --out renders/backup_sharp.mp4
+.\.venv\Scripts\python.exe render.py --mode board --out renders/backup_tapestry.mp4
 .\.venv\Scripts\python.exe app.py --play-backup
 ```
 
@@ -54,7 +54,7 @@ This writes a 1920x1080, 30 fps, 75-second MP4, a matching WAV and a PNG contact
 `still` uses a flat scan; `board` places it on a synthetic tracked board and desk; `video` uses a recorded camera clip and its marker detections. The synthetic board is suitable for rehearsing the effect, but the best backup for the classroom uses a recorded view of the real board:
 
 ```powershell
-.\.venv\Scripts\python.exe render.py --mode video --source assets/board_recording.mp4 --beats beats_mapped.json --out renders/backup_sharp.mp4
+.\.venv\Scripts\python.exe render.py --mode video --source assets/board_recording.mp4 --beats beats_mapped.json --out renders/backup_tapestry.mp4
 ```
 
 `--quality render` uses full-resolution composition; `--quality live` matches the optimized live path. `--tone` picks the ink tone, `--no-lens` turns off depth of field, rack focus, bloom and dust motes. `--no-audio`, `--no-atmosphere`, `--fps`, `--size`, `--start`, `--end`, `--sheet-only` and `--frames` support focused reviews. A clip's audio starts at the same timeline position as its picture.
@@ -75,7 +75,7 @@ Each preset has an `fx` block in `config.json`. `live` turns off the costlier pa
 Crop and straighten the scan to the drawing edges, with no board or desk inside it, then run:
 
 ```powershell
-.\.venv\Scripts\python.exe editor.py assets/scan.png --beats beats_v2.json --out beats_mapped.json
+.\.venv\Scripts\python.exe editor.py assets/scan.png --beats beats_tapestry.json --out beats_mapped.json
 .\.venv\Scripts\python.exe app.py --beats beats_mapped.json --camera 0 --debug --windowed
 ```
 
@@ -85,7 +85,9 @@ Choose `ghost` or a bounds region, press **P**, click its polygon vertices, and 
 
 Scrub the bottom slider for an effect preview or press Space with the canvas focused. Preview fields rebuild in the background after edits. It is intentionally lower resolution than final export. Polygon names and beat timing remain intact when saving; the editor preserves other beat data.
 
-Before presenting, align the vial hand/ear, the joined hands, the ghost polygon and command thread, river/petal landings, blade path, cup, rolling crown and floor. Adjust camera widths/heights numerically in the beat file if the drawing's composition needs different close-ups. Focus targets (`fx`, `fy`) are separate from camera centres and the editor does not move them; update them by hand after remapping. Check the gold-detection thresholds against the actual pencils or paint. Confirm the desk spill fits the real camera view and marker spacing.
+The supplied artwork already has mapped vial hand/ear, joined hands, ghost polygon and command thread, river/petal landings, blade path, cup, crown and floor. For a different drawing or crop, realign these anchors before presenting. Adjust camera widths/heights numerically in the beat file if the drawing's composition needs different close-ups. Focus targets (`fx`, `fy`) are separate from camera centres and the editor does not move them; update them by hand after remapping. Check the gold-detection thresholds against the actual pencils or paint. Confirm the desk spill fits the real camera view and marker spacing.
+
+`reference.py` generates only the old schematic at `assets/reference_tapestry.png`; it does not overwrite the supplied artwork. Missing configured artwork raises an error so an export cannot silently substitute the schematic.
 
 ## Configuration and sound
 

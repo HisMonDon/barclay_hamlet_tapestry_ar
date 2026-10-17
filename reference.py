@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from config import ROOT, load, resolve
+from config import ROOT, load
 from tracking import marker_layout
 
 PAL = {
@@ -449,13 +449,13 @@ def still_frame(cfg, tapestry, pad_frac=0.18):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Render the reference tapestry image")
+    ap = argparse.ArgumentParser(description="Render the schematic reference tapestry image")
     ap.add_argument("--beats", default=None)
     ap.add_argument("--scale", type=float, default=2.0)
-    ap.add_argument("--out", default=None)
+    ap.add_argument("--out", default=None, help="output image (default: assets/reference_tapestry.png)")
     args = ap.parse_args()
     cfg = load(args.beats)
-    out = Path(args.out) if args.out else resolve(cfg, cfg.get("scan", "assets/reference_tapestry.png"))
+    out = Path(args.out) if args.out else ROOT / "assets/reference_tapestry.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     img, gold = render_tapestry(cfg, args.scale)
     cv2.imwrite(str(out), img)

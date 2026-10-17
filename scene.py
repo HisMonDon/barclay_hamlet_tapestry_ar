@@ -9,10 +9,14 @@ from weeds import WeedEngine
 
 
 def load_scan(cfg):
-    p = resolve(cfg, cfg.get("scan"))
-    if p is None or not p.exists():
+    source = cfg.get("scan")
+    if not source:
         return None
-    return cv2.imread(str(p), cv2.IMREAD_COLOR)
+    p = resolve(cfg, source)
+    img = cv2.imread(str(p), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError(f"Could not read tapestry artwork: {p}. Check the beat file's 'scan' path.")
+    return img
 
 
 class Scene:

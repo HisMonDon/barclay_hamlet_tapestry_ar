@@ -8,7 +8,7 @@
  "gap_mm": 8,
  "tapestry_width": 960,
  "overlay_margin": 0.8,
- "beats": "beats_v2.json",
+ "beats": "beats_tapestry.json",
  "quality": {
   "live": {
    "ink_resolution": 0.4,
@@ -67,7 +67,7 @@
   "read_timeout_ms": 1500,
   "open_timeout_ms": 2000
  },
- "backup_video": "renders/backup_sharp.mp4",
+ "backup_video": "renders/backup_tapestry.mp4",
  "cache_dir": ".cache",
  "debug": {"hud": false},
  "editor": {

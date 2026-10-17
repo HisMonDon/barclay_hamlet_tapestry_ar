@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from app import Renderer
-from config import load
+from config import load, resolve
 from scene import Scene
 from timeline import Timeline
 from tracking import marker_layout
@@ -326,6 +326,38 @@ def camera_checks(cfg, renderer, frame, H):
     check("tracking freezes on marker loss", np.array_equal(before, renderer.tracker.H))
 
 
+def artwork_checks(cfg):
+    import copy
+    from render import load_source
+    from scene import load_scan
+
+    expected_path = ROOT / "assets" / "hamlet_tapestry.png"
+    selected_path = resolve(cfg, cfg.get("scan"))
+    check("default scan selects the supplied tapestry", selected_path == expected_path, str(selected_path))
+    check("supplied tapestry exists", expected_path.is_file())
+    expected = cv2.imread(str(expected_path), cv2.IMREAD_COLOR)
+    check("supplied tapestry retains its original dimensions", expected is not None and expected.shape == (1559, 1009, 3),
+          str(None if expected is None else expected.shape))
+    source, scan = load_source(cfg, None), load_scan(cfg)
+    check("offline source loads the supplied pixels exactly", expected is not None and np.array_equal(source, expected))
+    check("scene fields use the supplied pixels exactly", expected is not None and np.array_equal(scan, expected))
+
+    with tempfile.TemporaryDirectory() as folder:
+        missing = Path(folder) / "missing_tapestry.png"
+        broken = copy.deepcopy(cfg)
+        broken["scan"] = str(missing)
+        for name, load_missing in (
+                ("missing configured scan cannot substitute schematic art", lambda: load_source(broken, None)),
+                ("missing explicit source cannot substitute configured art", lambda: load_source(cfg, str(missing))),
+                ("scene refuses missing configured art", lambda: load_scan(broken))):
+            try:
+                load_missing()
+            except ValueError as error:
+                check(name, str(missing) in str(error), str(error))
+            else:
+                check(name, False, "missing artwork was accepted")
+
+
 def system_checks(cfg):
     import copy
     from types import SimpleNamespace
@@ -502,13 +534,14 @@ def system_checks(cfg):
 def main():
     default = load()
     check("default paper is tabloid", default["board"]["paper"] == "tabloid", default["board"]["paper"])
-    check("app defaults to beats_v2.json", default["beats_path"].endswith("beats_v2.json"), default["beats_path"])
+    check("app defaults to the supplied artwork mapping", Path(default["beats_path"]).name == "beats_tapestry.json", default["beats_path"])
     tl = Timeline(default)
-    check("beat sheet v2 runs 75 s", abs(tl.end - 75.0) < 1e-6, f"{tl.end}")
+    check("tapestry beat sheet runs 75 s", abs(tl.end - 75.0) < 1e-6, f"{tl.end}")
     check("beat sheet has B01..B21", list(tl.ids) == [f"B{k:02d}" for k in range(1, 22)])
-    flagged = all(s.get("provisional") for b in default["beats"] for k in ("seeds", "camera") for s in b.get(k, []))
-    check("every coordinate is marked provisional", flagged and all(r.get("provisional", True) is not None
-                                                                    for r in default["regions"].values()))
+    mapped = [s for b in default["beats"] for k in ("seeds", "camera") for s in b.get(k, [])]
+    mapped.extend(default["regions"].values())
+    check("mapped coordinates retain their calibration status", all(isinstance(s.get("provisional"), bool) for s in mapped))
+    artwork_checks(default)
     system_checks(default)
     run(default)
     run(load(paper="letter"))

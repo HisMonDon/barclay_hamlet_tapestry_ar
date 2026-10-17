@@ -1,0 +1,172 @@
+{
+  "video_path": "C:\\Users\\EricC\\All Coding Projects\\school-projects\\barclay_hamlet_tapestry_ar\\renders\\backup_tapestry.mp4",
+  "beats_path": "C:\\Users\\EricC\\All Coding Projects\\school-projects\\barclay_hamlet_tapestry_ar\\beats_tapestry.json",
+  "scan": "assets/hamlet_tapestry.png",
+  "timeline_duration_s": 75.0,
+  "sheet_path": "C:\\Users\\EricC\\All Coding Projects\\school-projects\\barclay_hamlet_tapestry_ar\\review\\tapestry_encoded_sheet.jpg",
+  "checks": {
+    "export_exists": true,
+    "video_opens": true,
+    "frame_count_2250": true,
+    "dimensions_1920x1080": true,
+    "fps_30": true,
+    "duration_75s": true,
+    "final_frame_decodes": true,
+    "all_contact_sheet_frames_decode": true,
+    "encoded_contact_sheet_written": true,
+    "ffmpeg_available": true,
+    "audio_decodes_from_mp4": true,
+    "audio_duration_matches_75s": true,
+    "final_hold_starts_at_65s": true,
+    "final_hold_has_441000_silent_samples": true,
+    "earlier_audio_contains_sound": true
+  },
+  "video": {
+    "bytes": 91663454,
+    "frame_count": 2250,
+    "fps": 30.0,
+    "width": 1920,
+    "height": 1080,
+    "duration_s": 75.0
+  },
+  "sampled_frames": [
+    {
+      "beat": "B01",
+      "time_s": 2.4000000000000004,
+      "frame_index": 72,
+      "decoded": true
+    },
+    {
+      "beat": "B02",
+      "time_s": 5.4,
+      "frame_index": 162,
+      "decoded": true
+    },
+    {
+      "beat": "B03",
+      "time_s": 8.4,
+      "frame_index": 252,
+      "decoded": true
+    },
+    {
+      "beat": "B04",
+      "time_s": 11.4,
+      "frame_index": 342,
+      "decoded": true
+    },
+    {
+      "beat": "B05",
+      "time_s": 14.4,
+      "frame_index": 432,
+      "decoded": true
+    },
+    {
+      "beat": "B06",
+      "time_s": 17.4,
+      "frame_index": 522,
+      "decoded": true
+    },
+    {
+      "beat": "B07",
+      "time_s": 20.4,
+      "frame_index": 612,
+      "decoded": true
+    },
+    {
+      "beat": "B08",
+      "time_s": 23.4,
+      "frame_index": 702,
+      "decoded": true
+    },
+    {
+      "beat": "B09",
+      "time_s": 26.4,
+      "frame_index": 792,
+      "decoded": true
+    },
+    {
+      "beat": "B10",
+      "time_s": 29.4,
+      "frame_index": 882,
+      "decoded": true
+    },
+    {
+      "beat": "B11",
+      "time_s": 32.4,
+      "frame_index": 972,
+      "decoded": true
+    },
+    {
+      "beat": "B12",
+      "time_s": 35.4,
+      "frame_index": 1062,
+      "decoded": true
+    },
+    {
+      "beat": "B13",
+      "time_s": 38.4,
+      "frame_index": 1152,
+      "decoded": true
+    },
+    {
+      "beat": "B14",
+      "time_s": 41.4,
+      "frame_index": 1242,
+      "decoded": true
+    },
+    {
+      "beat": "B15",
+      "time_s": 44.4,
+      "frame_index": 1332,
+      "decoded": true
+    },
+    {
+      "beat": "B16",
+      "time_s": 47.4,
+      "frame_index": 1422,
+      "decoded": true
+    },
+    {
+      "beat": "B17",
+      "time_s": 51.2,
+      "frame_index": 1536,
+      "decoded": true
+    },
+    {
+      "beat": "B18",
+      "time_s": 55.2,
+      "frame_index": 1656,
+      "decoded": true
+    },
+    {
+      "beat": "B19",
+      "time_s": 58.4,
+      "frame_index": 1752,
+      "decoded": true
+    },
+    {
+      "beat": "B20",
+      "time_s": 63.8,
+      "frame_index": 1914,
+      "decoded": true
+    },
+    {
+      "beat": "B21",
+      "time_s": 70.0,
+      "frame_index": 2100,
+      "decoded": true
+    }
+  ],
+  "audio": {
+    "decoded_rate_hz": 44100,
+    "sample_count": 3307500,
+    "duration_s": 75.0,
+    "silence_from_s": 65.0,
+    "silent_tail_samples": 441000,
+    "silent_tail_nonzero_samples": 0,
+    "earlier_nonzero_samples": 2859620,
+    "earlier_peak": 0.70703125,
+    "silent_tail_peak": 0.0
+  },
+  "passed": true
+}

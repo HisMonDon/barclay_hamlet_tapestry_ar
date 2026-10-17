@@ -1,3 +1,9 @@
+# Supplied tapestry artwork
+
+- The supplied PNG is preserved unchanged in `assets/hamlet_tapestry.png` and is now the default art through `beats_tapestry.json`.
+- Panel regions, ghost protection, prop anchors, ink paths, camera centres and focus targets are mapped to its layout. Original beat files and schematic art remain available.
+- The matching backup is `renders/backup_tapestry.mp4`. Schematic generation keeps its own output path, and missing configured art reports an error.
+
 # Graphics upgrade
 
 Drop these files over the project. Every new effect has a config switch, and old beat files still load.
