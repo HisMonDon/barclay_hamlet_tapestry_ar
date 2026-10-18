@@ -1,6 +1,6 @@
 import { Playback, formatTime } from "./playback.js";
 import { ScanStage, listCameras } from "./scan.js";
-import { getJSON, postJSON } from "./net.js";
+import { getJSON, postJSON, STATIC, URLS } from "./net.js";
 
 const $ = (id) => document.getElementById(id);
 const PREFS_KEY = "tapestry.ui";
@@ -20,11 +20,13 @@ boot();
 async function boot() {
   showLoading("Loading the show");
   try {
-    info = await getJSON("/api/info");
+    info = await getJSON(URLS.info);
   } catch (err) {
     hideLoading();
-    showNotice({ kicker: "Renderer", tone: "bad", title: "The renderer is not running",
-      text: `Start it with .venv\\Scripts\\python.exe server.py, then reload this page. (${err.message})`, actions: ["reload"] });
+    showNotice(STATIC
+      ? { kicker: "Loading", tone: "bad", title: "The show could not be loaded", text: `Check the connection and reload the page. (${err.message})`, actions: ["reload"] }
+      : { kicker: "Renderer", tone: "bad", title: "The renderer is not running",
+        text: `Start it with .venv\\Scripts\\python.exe server.py, then reload this page. (${err.message})`, actions: ["reload"] });
     return;
   }
   document.title = `${info.title.split(":")[0]} — Virtual Explore`;
@@ -32,11 +34,12 @@ async function boot() {
   if (sub) $("show-title").textContent = sub.trim();
   $("gap-mm").textContent = info.board.gap_mm;
   $("min-markers").textContent = info.min_markers;
+  if (STATIC) makeStatic();
 
   pb = new Playback(info);
   pb.volume = prefs.volume ?? 0.9;
   pb.muted = !!prefs.muted;
-  pb.loadSoundtrack("/api/audio.wav");
+  pb.loadSoundtrack(URLS.audio);
   pb.addEventListener("state", () => (mode === "scan" && scan ? renderStatus() : renderTransportState()));
   pb.addEventListener("seek", () => (lastSecond = -1));
   pb.addEventListener("beat", renderScene);
@@ -76,10 +79,10 @@ async function boot() {
   } else {
     hideLoading();
   }
-  if (location.hash === "#scan") setMode("scan");
+  if (location.hash === "#scan" && !STATIC) setMode("scan");
   requestAnimationFrame(tick);
   window.addEventListener("pagehide", () => {
-    if (scan.kind) fetch("/api/source", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", "X-Tapestry": "1" }, body: '{"kind":"none"}' });
+    if (scan.kind && !STATIC) fetch("/api/source", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", "X-Tapestry": "1" }, body: '{"kind":"none"}' });
   });
 }
 
@@ -393,6 +396,8 @@ function wireSetup() {
   $("zoom-in-btn").addEventListener("click", () => virtual && virtual.zoom(0.8));
   $("zoom-out-btn").addEventListener("click", () => virtual && virtual.zoom(1.25));
 
+  if (STATIC) return;
+
   // camera sources
   for (const r of document.querySelectorAll('input[name="source"]')) r.addEventListener("change", () => selectSource(r.value));
   selectSource(prefs.source || "browser");
@@ -497,6 +502,14 @@ async function refreshCameras() {
   cams.forEach((c, i) => { if (c.deviceId) opts.push(new Option(c.label || `Camera ${i + 1}`, c.deviceId)); });
   sel.replaceChildren(...opts);
   if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+}
+
+// The static site is Virtual Explore alone: no mode tabs, no camera setup.
+function makeStatic() {
+  document.documentElement.classList.add("static");
+  document.querySelector(".modes").remove();
+  document.querySelector('.setup-mode[data-for="scan"]').hidden = true;
+  $("about-view").textContent = "The animation was rendered by the tapestry engine and is laid onto a virtual board, with the four tracking markers where they sit on the real one. The camera-tracked version runs from the project’s own app.";
 }
 
 // ---- keyboard ------------------------------------------------------------------------------------------

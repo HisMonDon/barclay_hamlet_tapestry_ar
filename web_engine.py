@@ -249,21 +249,25 @@ class WebEngine:
         return min(self.timeline.end, max(0.0, float(t)))
 
     # ---- Virtual Explore -----------------------------------------------------------------------------------
-    def virtual(self, t, detail="standard"):
-        """The board texture at t: the show without a camera. Frozen from the hold onwards."""
+    def texture(self, t, detail="standard"):
+        """The board texture at t as a BGR image: the show without a camera. Frozen from the hold onwards."""
         detail = detail if detail in DETAIL else "standard"
-        t = self.clamp(t)
-        tt = min(t, self.timeline.hold_t)
+        tt = min(self.clamp(t), self.timeline.hold_t)
         frame, Ht = self.board.frame(detail)
-        start = time.perf_counter()
         with self.lock:
             layers = self.scene.layers(tt)
             extra = self.scene.extras(tt)
             realism, self.comp.realism = self.comp.realism, None
             try:
-                img = self.comp.compose(frame, Ht, np.eye(3), (frame.shape[1], frame.shape[0]), *layers, extra=extra)
+                return self.comp.compose(frame, Ht, np.eye(3), (frame.shape[1], frame.shape[0]), *layers, extra=extra)
             finally:
                 self.comp.realism = realism
+
+    def virtual(self, t, detail="standard"):
+        detail = detail if detail in DETAIL else "standard"
+        t = self.clamp(t)
+        start = time.perf_counter()
+        img = self.texture(t, detail)
         data = encode(img, 90 if detail == "high" else 84)
         return data, {"t": t, "frozen": t >= self.timeline.hold_t, "detail": detail, "size": [img.shape[1], img.shape[0]],
                       "ms": round((time.perf_counter() - start) * 1000, 1)}

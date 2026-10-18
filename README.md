@@ -79,6 +79,30 @@ Camera sources:
 
 The `k=` key in the link changes every time the server starts, so scan the QR code again after a restart. If the phone cannot load the page, check that both devices are on the same network, that the address shown matches the computer's Wi-Fi address (pick another one from the list if there are several), and that a firewall is not blocking port 8443. An IP-camera app with **Stream URL** is the fallback.
 
+### Static Virtual Explore for the web (Vercel, GitHub Pages)
+
+Web hosts like Vercel and GitHub Pages cannot run the Python engine, so the camera-free Virtual Explore can be exported as a static site instead:
+
+```powershell
+.\.venv\Scripts\python.exe export_static.py
+.\.venv\Scripts\python.exe -m http.server 8080 --directory site
+```
+
+The first command renders the board animation up to the hold into `site/media/board.mp4` (H.264, 1120 px wide, 30 fps, about 1.5 minutes to render) and writes the page, the soundtrack and the show data beside it; the whole folder is about 45 MB. The second previews it at http://localhost:8080. The page is the same Virtual Explore without the mode tabs or camera setup: orbit, pan, zoom, Reset view, Follow animation, the scrubber, scenes, sound, the silent ending and the hold all work, with the video kept in step with the soundtrack. It cannot re-render a sharper frame when paused, since there is no engine behind it. `--width` and `--crf` trade sharpness for size, `--fps` sets the frame rate, and `--page-only` rebuilds the page and data but keeps the existing video, for UI-only changes. `site/` is not committed; rebuild it after changing the show.
+
+Upload `site/` to any static host. All paths are relative, so it also works from a sub-path such as `https://USER.github.io/REPO/`.
+
+- **Vercel**: `npx vercel deploy site --prod`, sign in when asked, and accept the defaults (no framework, no build command). Hobby accounts can deploy from private repositories.
+- **GitHub Pages**: publish `site/` as a separate `gh-pages` branch, then choose **Settings → Pages → Deploy from a branch → gh-pages / (root)**. On a free account the repository must be public.
+
+  ```powershell
+  cd site
+  git init -b gh-pages
+  git add -A
+  git commit -m "Static Virtual Explore"
+  git push -f https://github.com/HisMonDon/barclay_hamlet_tapestry_ar.git gh-pages
+  ```
+
 ### Positioning the artwork
 
 Print `markers.pdf` at 100% and place markers 0 (top-left), 1 (top-right), 2 (bottom-right) and 3 (bottom-left) as described above. Mount the camera above the board looking down, with the board filling about two-thirds of the picture; deeper zooms need the paper at least about 580 px wide in a 1080p feed. Light the board evenly and avoid glare on the markers. At least three markers must be visible to lock on.
