@@ -3,7 +3,8 @@
     .venv\\Scripts\\python.exe export_static.py            # writes site/
 
 The engine renders the board texture for every frame up to the hold and encodes it as an H.264 video. The page
-plays that video on the 3D board, slaved to the soundtrack, with the same controls as the local app. Upload the
+plays that video on the 3D board with the same controls as the local app. The site is silent unless
+--audio adds the soundtrack. Upload the
 site/ folder to any static host (Vercel, GitHub Pages, Netlify).
 """
 
@@ -88,6 +89,7 @@ def main():
     ap.add_argument("--width", type=int, default=1120, help="video width in pixels (height follows the board)")
     ap.add_argument("--crf", type=int, default=22, help="H.264 quality, lower is sharper and larger")
     ap.add_argument("--page-only", action="store_true", help="rebuild the page and data but keep the existing video")
+    ap.add_argument("--audio", action="store_true", help="include the soundtrack (the site is silent by default)")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -98,6 +100,7 @@ def main():
     info = engine.info()
     info.pop("detail", None)
     info["static"] = True
+    info["audio"] = bool(args.audio and info["audio"])
 
     video_meta = out / "data" / "video.json"
     if args.page_only and video_meta.exists() and (out / "media" / "board.mp4").exists():
@@ -109,11 +112,15 @@ def main():
 
     (out / "data" / "info.json").write_text(json.dumps(info), encoding="utf-8")
     (out / "data" / "camera-path.json").write_text(json.dumps(engine.camera_path()), encoding="utf-8")
-    (out / "media" / "soundtrack.wav").write_bytes(engine.wav)
+    wav = out / "media" / "soundtrack.wav"
+    if info["audio"]:
+        wav.write_bytes(engine.wav)
+    elif wav.exists():
+        wav.unlink()
     (out / "media" / "desk.jpg").write_bytes(engine.desk_jpeg)
     write_page(out)
 
-    total = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
+    total = sum(p.stat().st_size for p in out.rglob("*") if p.is_file() and ".git" not in p.parts)
     video = (out / "media" / "board.mp4").stat().st_size
     print(f"\nWrote {out}/  ({total / 1e6:.1f} MB, video {video / 1e6:.1f} MB)")
     print(f"Preview it with:  .venv\\Scripts\\python.exe -m http.server 8080 --directory {out}")
