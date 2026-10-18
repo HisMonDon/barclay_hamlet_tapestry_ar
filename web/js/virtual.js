@@ -1,6 +1,7 @@
 // Virtual Explore: the board, desk and candle in 3D, with the engine's animation streamed onto the board.
 import * as THREE from "three";
-import { OrbitControls } from "/static/vendor/three/OrbitControls.js";
+import { OrbitControls } from "../vendor/three/OrbitControls.js";
+import { URLS } from "./net.js";
 
 const BOARD_THICK = 0.006;
 const FOLLOW_TILT = THREE.MathUtils.degToRad(12);
@@ -94,7 +95,7 @@ export class VirtualStage {
     c.target.copy(this.overviewPose().target);
     c.update();
 
-    fetch("/api/camera-path").then((r) => r.json()).then((p) => (this.path = p)).catch(() => {
+    fetch(URLS.path).then((r) => r.json()).then((p) => (this.path = p)).catch(() => {
       this.onStatus({ tone: "warn", text: "The show's camera path could not be loaded; Follow animation is unavailable." });
     });
     this.ready = true;
@@ -123,7 +124,7 @@ export class VirtualStage {
 
   async buildDesk() {
     const [dx0, dy0, dx1, dy1] = this.b.desk_mm;
-    const tex = await new THREE.TextureLoader().loadAsync("/api/desk.jpg").catch(() => null);
+    const tex = await new THREE.TextureLoader().loadAsync(URLS.desk).catch(() => null);
     if (tex) {
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = this.maxAniso;
@@ -160,7 +161,7 @@ export class VirtualStage {
   }
 
   buildBoard() {
-    const tex = (this.texture = this.makeTexture(null));
+    const tex = (this.texture = this.info.video ? this.makeVideoTexture() : this.makeTexture(null));
     this.boardMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.86, metalness: 0, color: 0xffffff });
     this.stripMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.62, metalness: 0, color: 0xffffff });
     this.boardMat.visible = this.stripMat.visible = false;
@@ -181,6 +182,53 @@ export class VirtualStage {
     const strip = this.rectMesh(this.texRect, this.texRect, 0.0004, this.stripMat);
     strip.receiveShadow = true;
     this.scene.add(strip);
+  }
+
+  // Static site: the engine's board animation as a video, slaved to the playback clock in syncVideo().
+  makeVideoTexture() {
+    const v = (this.videoEl = document.createElement("video"));
+    v.src = this.info.video.url;
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    v.preload = "auto";
+    v.crossOrigin = "anonymous";
+    v.addEventListener("error", () => this.onStatus({ tone: "bad", text: "The animation video could not be loaded. Reload the page to try again." }));
+    const tex = new THREE.VideoTexture(v);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = this.maxAniso || 1;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    v.addEventListener("seeked", () => (tex.needsUpdate = true));
+    v.addEventListener("loadeddata", () => (tex.needsUpdate = true));
+    return tex;
+  }
+
+  syncVideo() {
+    const v = this.videoEl;
+    if (!v) return;
+    if (!this.hasFrame && v.readyState >= 2) {
+      this.boardMat.visible = this.stripMat.visible = true;
+      this.firstFrame();
+    }
+    if (v.readyState < 1) return;
+    const pb = this.pb;
+    const fps = this.info.video.fps;
+    const last = Math.max(0, Math.min(v.duration || this.info.video.duration, this.info.hold) - 0.5 / fps);
+    const want = Math.min(pb.heardTime, last);
+    if (pb.running && pb.heardTime < last) {
+      const d = want - v.currentTime;
+      if (Math.abs(d) > 0.25) {
+        if (!v.seeking) v.currentTime = want;
+      } else {
+        v.playbackRate = 1 + Math.max(-0.1, Math.min(0.1, d * 1.5));
+      }
+      if (v.paused) v.play().catch(() => {});
+    } else {
+      if (!v.paused) v.pause();
+      v.playbackRate = 1;
+      if (Math.abs(v.currentTime - want) > 0.5 / fps && !v.seeking) v.currentTime = want;
+    }
   }
 
   makeTexture(image) {
@@ -577,10 +625,12 @@ export class VirtualStage {
     this.active = false;
     cancelAnimationFrame(this.raf);
     if (this.abort) this.abort.abort();
+    if (this.videoEl) this.videoEl.pause();
   }
 
   frame() {
-    this.pump();
+    if (this.videoEl) this.syncVideo();
+    else this.pump();
     if (this.fallback || !this.ready) return;
     const t = this.pb.heardTime;
     this.animateAtmosphere(t);
