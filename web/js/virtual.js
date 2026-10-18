@@ -296,7 +296,7 @@ export class VirtualStage {
   }
 
   buildMotes() {
-    const n = 90;
+    const n = 180;
     const rnd = mulberry(5);
     this.moteBase = new Float32Array(n * 6);
     for (let i = 0; i < n; i++) {
