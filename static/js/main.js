@@ -39,7 +39,8 @@ async function boot() {
   pb = new Playback(info);
   pb.volume = prefs.volume ?? 0.9;
   pb.muted = !!prefs.muted;
-  pb.loadSoundtrack(URLS.audio);
+  if (pb.audioOn) pb.loadSoundtrack(URLS.audio);
+  else removeSound();
   pb.addEventListener("state", () => (mode === "scan" && scan ? renderStatus() : renderTransportState()));
   pb.addEventListener("seek", () => (lastSecond = -1));
   pb.addEventListener("beat", renderScene);
@@ -235,7 +236,7 @@ function buildThread() {
   }
   const silence = info.beats.find((b) => b.silence);
   const hold = info.beats.find((b) => b.hold);
-  for (const [beat, label] of [[silence, "silence"], [hold, "hold"]]) {
+  for (const [beat, label] of [[pb.audioOn && silence, "silence"], [hold, "hold"]]) {
     if (!beat) continue;
     const z = document.createElement("div");
     z.className = "zone";
@@ -504,6 +505,13 @@ async function refreshCameras() {
   if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
 
+// A show exported without its soundtrack has no sound controls.
+function removeSound() {
+  $("mute-btn").hidden = true;
+  $("volume").hidden = true;
+  $("key-mute").hidden = true;
+}
+
 // The static site is Virtual Explore alone: no mode tabs, no camera setup.
 function makeStatic() {
   document.documentElement.classList.add("static");
@@ -539,6 +547,7 @@ function wireKeys() {
         break;
       case "m":
       case "M":
+        if (!pb.audioOn) return;
         pb.setMuted(!pb.muted);
         savePrefs({ muted: pb.muted });
         break;

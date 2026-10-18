@@ -32,11 +32,12 @@ export class Playback extends EventTarget {
     this.muted = false;
     this.audioError = null;
     this.lastBeat = -1;
+    this.audioOn = info.audio !== false;
   }
 
   // ---- audio ------------------------------------------------------------------------------------------
   ensureContext() {
-    if (this.ctx) return this.ctx;
+    if (this.ctx || !this.audioOn) return this.ctx;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) {
       this.audioError = "This browser has no Web Audio support; the show will play silently.";
