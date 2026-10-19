@@ -31,6 +31,7 @@ export class VirtualStage {
     this.retryAt = 0;
     this.pendingClose = [];
     this.fallback = null;
+    this.touched = false;
 
     const b = info.board;
     this.b = b;
@@ -95,7 +96,11 @@ export class VirtualStage {
     c.target.copy(this.overviewPose().target);
     c.update();
 
-    fetch(URLS.path).then((r) => r.json()).then((p) => (this.path = p)).catch(() => {
+    // Follow animation is the default view; it waits for the camera path and gives way once the user moves.
+    fetch(URLS.path).then((r) => r.json()).then((p) => {
+      this.path = p;
+      if (!this.touched) this.setFollow(true);
+    }).catch(() => {
       this.onStatus({ tone: "warn", text: "The show's camera path could not be loaded; Follow animation is unavailable." });
     });
     this.ready = true;
@@ -291,7 +296,7 @@ export class VirtualStage {
   }
 
   buildMotes() {
-    const n = 90;
+    const n = 180;
     const rnd = mulberry(5);
     this.moteBase = new Float32Array(n * 6);
     for (let i = 0; i < n; i++) {
@@ -416,6 +421,7 @@ export class VirtualStage {
   }
 
   userMoved() {
+    this.touched = true;
     this.flight = null;
     if (this.follow) {
       this.follow = false;
@@ -426,6 +432,7 @@ export class VirtualStage {
   }
 
   resetView() {
+    this.touched = true;
     if (this.follow) this.setFollow(false);
     const to = this.overviewPose();
     this.flight = { t: performance.now(), dur: 900, fromPos: this.camera.position.clone(), fromTarget: this.controls.target.clone(), to };

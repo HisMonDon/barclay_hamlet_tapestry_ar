@@ -116,6 +116,62 @@ class EngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.engine.set_source("teleport")
 
+    def test_scan_replaces_camera_paper_but_keeps_the_live_surroundings(self):
+        e = self.engine
+        frame = camera_view(e)
+        e.set_source("browser")
+        original, meta = e.scan(frame, 0.0, follow=False)
+        self.assertTrue(meta["locked"])
+        H = e.renderer.tracker.H.copy()
+        tw, th = e.cfg["tapestry"]["width"], e.cfg["tapestry"]["height"]
+        paper = cv2.perspectiveTransform(np.float64([[[0, 0], [tw, 0], [tw, th], [0, th]]]), H)[0]
+        changed = frame.copy()
+        cv2.fillConvexPoly(changed, np.round(paper).astype(np.int32), (0, 255, 0))
+        # A changing camera background must remain visible outside the digital paper.
+        changed[:80, :100] = (255, 0, 255)
+        replaced, _ = e.scan(changed, 0.0, follow=False)
+        before, after = decode(original), decode(replaced)
+        M = e.scan_comp.view(0.0, H, frame.shape, virtual=False)
+        projected = cv2.perspectiveTransform(paper[None], np.linalg.inv(M))[0]
+        mask = np.zeros(before.shape[:2], np.uint8)
+        cv2.fillConvexPoly(mask, np.round(projected).astype(np.int32), 255)
+        mask = cv2.erode(mask, np.ones((17, 17), np.uint8)) > 0
+        self.assertLess(float(np.abs(before.astype(float) - after)[mask].mean()), 1.0,
+                        "camera colours underneath the paper must not leak into the artwork")
+        self.assertGreater(float(np.abs(before[:40, :60].astype(float) - after[:40, :60]).mean()), 20.0)
+        animated, _ = e.scan(changed, 20.0, follow=False)
+        self.assertGreater(float(np.abs(decode(animated).astype(float) - after)[mask].mean()), 2.0,
+                           "the show must still animate over the replacement")
+
+    def test_scan_digital_art_follows_a_moving_board_without_changing_virtual_explore(self):
+        e = self.engine
+        virtual_before, _ = e.virtual(0.0)
+        frame = camera_view(e)
+        e.set_source("browser")
+        e.scan(frame, 0.0, follow=False)
+        H = e.renderer.tracker.H.copy()
+        move = np.float64([[1, 0, 100], [0, 1, 0]])
+        moved = cv2.warpAffine(frame, move, (frame.shape[1], frame.shape[0]))
+        for _ in range(e.renderer.track_interval + 1):
+            data, meta = e.scan(moved, 0.0, follow=False)
+        self.assertEqual(meta["tracking"], "locked")
+        origin = np.float64([[[0, 0]]])
+        old_pos = cv2.perspectiveTransform(origin, H)[0, 0]
+        new_pos = cv2.perspectiveTransform(origin, e.renderer.tracker.H)[0, 0]
+        np.testing.assert_allclose(new_pos - old_pos, [100, 0], atol=2.0)
+        # A patch of the digital base at the tracked centre matches the requested art.
+        art = cv2.imread(str(Path(__file__).parent / "assets/hamlet_tapestry.png"))
+        tw, th = e.cfg["tapestry"]["width"], e.cfg["tapestry"]["height"]
+        M = e.scan_comp.view(0.0, e.renderer.tracker.H, moved.shape, virtual=False)
+        to_output = np.linalg.inv(M) @ e.renderer.tracker.H
+        q = cv2.perspectiveTransform(np.float64([[[tw * 0.5, th * 0.5]]]), to_output)[0, 0]
+        x, y = np.round(q).astype(int)
+        expected = art[art.shape[0] // 2 - 12:art.shape[0] // 2 + 13,
+                       art.shape[1] // 2 - 12:art.shape[1] // 2 + 13].mean(axis=(0, 1))
+        actual = decode(data)[y - 2:y + 3, x - 2:x + 3].mean(axis=(0, 1))
+        np.testing.assert_allclose(actual, expected, atol=35)
+        self.assertEqual(e.virtual(0.0)[0], virtual_before)
+
     def test_phone_relay_only_keeps_frames_while_in_use(self):
         relay = PhoneRelay()
         jpeg = encode(np.full((40, 60, 3), 120, np.uint8))
@@ -176,6 +232,12 @@ class ServerTests(unittest.TestCase):
         for path in ("/static/js/main.js", "/static/vendor/three/three.module.min.js", "/phone"):
             self.assertEqual(self.request("GET", path)[0].status, 200, path)
         self.assertEqual(self.request("GET", "/static/../server.py")[0].status, 404)
+
+    def test_ping_tells_the_static_site_the_backend_is_up(self):
+        res, data = self.request("GET", "/api/ping")
+        self.assertEqual(json.loads(data), {"ok": True})
+        self.assertEqual(res.getheader("Access-Control-Allow-Origin"), "*")
+        self.assertEqual(self.request("GET", "/api/ping", host="evil.example")[0].status, 403)
 
     def test_info_audio_and_texture(self):
         res, data = self.request("GET", "/api/info")

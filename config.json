@@ -71,6 +71,7 @@
   "export_codec": "alac"
  },
  "camera_input": {
+  "artwork": "assets/hamlet_tapestry.png",
   "source": "0",
   "backend": "auto",
   "capture_size": "1920x1080",

@@ -1,6 +1,5 @@
 # hamlet-ar — "The Serpent Beneath" Reveal Spec
 
-> **To Claude Code:** Read this whole spec, then read the existing `hamlet-ar` codebase (tracking, ink engine, beats JSON, virtual camera, config.json, ghost cap, banner weave). Propose an integration plan in plan mode before writing code. Extend the existing systems; do not rewrite tracking or the ink engine. Build in the phase order in §12, and stop for review at the end of each phase. Code style: match the repo, no comments, use `x` as the loop variable.
 
 ---
 

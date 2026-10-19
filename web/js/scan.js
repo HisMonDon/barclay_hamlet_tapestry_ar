@@ -1,4 +1,4 @@
-// Scan Tapestry: camera frames go to the engine, which finds the ArUco markers and returns the composite.
+// Scan Tapestry: the engine tracks ArUco markers and paints the digital tapestry and show over the paper.
 //
 // Sources:
 //   browser  this computer's webcam through getUserMedia; frames are uploaded with each request
@@ -23,7 +23,7 @@ export class ScanStage {
     this.locked = false;
     this.tracking = "searching";
     this.seen = [];
-    this.follow = true;
+    this.follow = false;
     this.overlay = false;
     this.inFlight = 0;
     this.seq = 0;

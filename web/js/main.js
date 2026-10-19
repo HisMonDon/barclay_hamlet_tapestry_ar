@@ -1,6 +1,6 @@
 import { Playback, formatTime } from "./playback.js";
 import { ScanStage, listCameras } from "./scan.js";
-import { getJSON, postJSON, STATIC, URLS } from "./net.js";
+import { BACKEND, getJSON, pingBackend, postJSON, STATIC, URLS } from "./net.js";
 
 const $ = (id) => document.getElementById(id);
 const PREFS_KEY = "tapestry.ui";
@@ -39,7 +39,8 @@ async function boot() {
   pb = new Playback(info);
   pb.volume = prefs.volume ?? 0.9;
   pb.muted = !!prefs.muted;
-  pb.loadSoundtrack(URLS.audio);
+  if (pb.audioOn) pb.loadSoundtrack(URLS.audio);
+  else removeSound();
   pb.addEventListener("state", () => (mode === "scan" && scan ? renderStatus() : renderTransportState()));
   pb.addEventListener("seek", () => (lastSecond = -1));
   pb.addEventListener("beat", renderScene);
@@ -56,7 +57,7 @@ async function boot() {
   renderTransportState();
 
   scan = new ScanStage({ canvas: $("scan-canvas"), playback: pb, info, onChange: renderStatus });
-  scan.setView({ follow: prefs.scanFollow ?? true, overlay: false });
+  scan.setView({ follow: prefs.scanFollow ?? false, overlay: false });
   $("cine-switch").checked = scan.follow;
 
   const { VirtualStage } = await import("./virtual.js").catch((err) => {
@@ -235,7 +236,7 @@ function buildThread() {
   }
   const silence = info.beats.find((b) => b.silence);
   const hold = info.beats.find((b) => b.hold);
-  for (const [beat, label] of [[silence, "silence"], [hold, "hold"]]) {
+  for (const [beat, label] of [[pb.audioOn && silence, "silence"], [hold, "hold"]]) {
     if (!beat) continue;
     const z = document.createElement("div");
     z.className = "zone";
@@ -373,8 +374,9 @@ function renderFollow() {
 // ---- setup panel -----------------------------------------------------------------------------------------
 function wireSetup() {
   for (const tab of document.querySelectorAll(".mode-tab")) {
-    tab.addEventListener("click", () => setMode(tab.dataset.mode));
+    tab.addEventListener("click", () => (STATIC ? openBackend(tab) : setMode(tab.dataset.mode)));
     tab.addEventListener("keydown", (e) => {
+      if (STATIC) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         const next = mode === "virtual" ? "scan" : "virtual";
         setMode(next);
@@ -504,12 +506,47 @@ async function refreshCameras() {
   if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
 
-// The static site is Virtual Explore alone: no mode tabs, no camera setup.
+// A show exported without its soundtrack has no sound controls.
+function removeSound() {
+  $("mute-btn").hidden = true;
+  $("volume").hidden = true;
+  $("key-mute").hidden = true;
+}
+
+// The static site is Virtual Explore. Scan Tapestry needs the Python backend, so its tab is a link to the local app,
+// and it stays unavailable (with a note) while that backend is not answering.
+const BACKEND_POLL_MS = 5000;
+let backendUp = false;
+
 function makeStatic() {
   document.documentElement.classList.add("static");
-  document.querySelector(".modes").remove();
   document.querySelector('.setup-mode[data-for="scan"]').hidden = true;
-  $("about-view").textContent = "The animation was rendered by the tapestry engine and is laid onto a virtual board, with the four tracking markers where they sit on the real one. The camera-tracked version runs from the project’s own app.";
+  $("about-view").textContent = "The animation was rendered by the tapestry engine and is laid onto a virtual board, with the four tracking markers where they sit on the real one. Scan Tapestry, the camera-tracked version, needs the project’s backend running on this computer.";
+  const tab = $("tab-scan");
+  const note = document.createElement("span");
+  note.className = "tab-note";
+  note.textContent = "Backend is down";
+  tab.append(note);
+  setBackend(false);
+  const poll = async () => {
+    if (!document.hidden) setBackend(await pingBackend());
+    setTimeout(poll, BACKEND_POLL_MS);
+  };
+  poll();
+  document.addEventListener("visibilitychange", async () => { if (!document.hidden) setBackend(await pingBackend()); });
+}
+
+function setBackend(up) {
+  backendUp = up;
+  const tab = $("tab-scan");
+  tab.setAttribute("aria-disabled", String(!up));
+  tab.title = up ? "Open Scan Tapestry in the local app" : "Backend is down. Start server.py on this computer to use Scan Tapestry.";
+}
+
+function openBackend(tab) {
+  if (tab.dataset.mode !== "scan") return;
+  if (!backendUp) { toast("Backend is down. Start server.py on this computer to use Scan Tapestry.", 5000); return; }
+  location.href = `${BACKEND}/#scan`;
 }
 
 // ---- keyboard ------------------------------------------------------------------------------------------
@@ -539,6 +576,7 @@ function wireKeys() {
         break;
       case "m":
       case "M":
+        if (!pb.audioOn) return;
         pb.setMuted(!pb.muted);
         savePrefs({ muted: pb.muted });
         break;
