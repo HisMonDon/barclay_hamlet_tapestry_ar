@@ -1,7 +1,7 @@
 // Virtual Explore: the board, desk and candle in 3D, with the engine's animation streamed onto the board.
 import * as THREE from "three";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
-import { URLS } from "./net.js";
+import { getJSON, URLS } from "./net.js";
 
 const BOARD_THICK = 0.006;
 const FOLLOW_TILT = THREE.MathUtils.degToRad(12);
@@ -39,6 +39,7 @@ export class VirtualStage {
     const [bx0, by0, bx1, by1] = b.board_mm;
     this.centre = [(bx0 + bx1) / 2, (by0 + by1) / 2];
     this.texRect = b.texture_mm;
+    this.endingStart = info.beats?.filter((beat) => beat.start < info.hold).at(-1)?.start ?? info.hold;
   }
 
   // mm on the drawing (x right, y down) -> world metres (x right, z towards the viewer, y up)
@@ -51,7 +52,10 @@ export class VirtualStage {
       this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: "high-performance" });
     } catch (err) {
       this.fallback = this.canvas.getContext("2d");
+      if (!this.fallback) throw new Error("This browser cannot display the board. Try a browser with WebGL or Canvas support.");
       this.onStatus({ tone: "warn", text: "3D is unavailable in this browser (WebGL is off). Showing the flat board instead." });
+      this.canvas.setAttribute("aria-label", "Flat view of the animated tapestry board");
+      if (this.info.video) this.makeVideo();
       this.ready = false;
       this.resizeObserver = new ResizeObserver(() => this.resize());
       this.resizeObserver.observe(this.canvas);
@@ -65,6 +69,9 @@ export class VirtualStage {
     r.toneMappingExposure = 1.0;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
+    // The spotlight and every shadow-casting mesh stay fixed; only the board texture and camera move.
+    r.shadowMap.autoUpdate = false;
+    r.shadowMap.needsUpdate = true;
     this.maxAniso = r.capabilities.getMaxAnisotropy();
 
     const scene = (this.scene = new THREE.Scene());
@@ -97,7 +104,11 @@ export class VirtualStage {
     c.update();
 
     // Follow animation is the default view; it waits for the camera path and gives way once the user moves.
-    fetch(URLS.path).then((r) => r.json()).then((p) => {
+    getJSON(URLS.path).then((p) => {
+      if (!(p.rate > 0) || !Array.isArray(p.poses) || !p.poses.length ||
+          !p.poses.every((pose) => Array.isArray(pose) && pose.length === 5 && pose.every(Number.isFinite))) {
+        throw new Error("Invalid camera path");
+      }
       this.path = p;
       if (!this.touched) this.setFollow(true);
     }).catch(() => {
@@ -190,15 +201,20 @@ export class VirtualStage {
   }
 
   // Static site: the engine's board animation as a video, slaved to the playback clock in syncVideo().
-  makeVideoTexture() {
+  makeVideo() {
     const v = (this.videoEl = document.createElement("video"));
-    v.src = this.info.video.url;
     v.muted = true;
     v.playsInline = true;
     v.setAttribute("playsinline", "");
     v.preload = "auto";
     v.crossOrigin = "anonymous";
     v.addEventListener("error", () => this.onStatus({ tone: "bad", text: "The animation video could not be loaded. Reload the page to try again." }));
+    v.src = this.info.video.url;
+    return v;
+  }
+
+  makeVideoTexture() {
+    const v = this.makeVideo();
     const tex = new THREE.VideoTexture(v);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = this.maxAniso || 1;
@@ -213,15 +229,20 @@ export class VirtualStage {
     const v = this.videoEl;
     if (!v) return;
     if (!this.hasFrame && v.readyState >= 2) {
-      this.boardMat.visible = this.stripMat.visible = true;
+      if (this.fallback) this.drawFallback();
+      else this.boardMat.visible = this.stripMat.visible = true;
       this.firstFrame();
     }
     if (v.readyState < 1) return;
     const pb = this.pb;
     const fps = this.info.video.fps;
-    const last = Math.max(0, Math.min(v.duration || this.info.video.duration, this.info.hold) - 0.5 / fps);
-    const want = Math.min(pb.heardTime, last);
-    if (pb.running && pb.heardTime < last) {
+    const duration = Number.isFinite(v.duration) ? v.duration : this.info.video.duration;
+    // The exporter includes an exact hold frame, even when the hold falls between video timestamps.
+    const finalFrame = (this.info.video.frames - 1) / fps;
+    const last = Math.max(0, Math.min(finalFrame, duration - 0.5 / fps));
+    const holding = pb.heardTime >= this.info.hold;
+    const want = holding ? last : Math.min(pb.heardTime, last);
+    if (pb.running && !holding) {
       const d = want - v.currentTime;
       if (Math.abs(d) > 0.25) {
         if (!v.seeking) v.currentTime = want;
@@ -232,7 +253,11 @@ export class VirtualStage {
     } else {
       if (!v.paused) v.pause();
       v.playbackRate = 1;
-      if (Math.abs(v.currentTime - want) > 0.5 / fps && !v.seeking) v.currentTime = want;
+      if (Math.abs(v.currentTime - want) > (holding ? 0.0001 : 0.5 / fps) && !v.seeking) v.currentTime = want;
+    }
+    if (this.fallback && v.readyState >= 2 && !v.seeking && this.flatTime !== v.currentTime) {
+      this.flatTime = v.currentTime;
+      this.drawFallback();
     }
   }
 
@@ -343,8 +368,9 @@ export class VirtualStage {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
     if (this.fallback) {
-      this.canvas.width = w * devicePixelRatio;
-      this.canvas.height = h * devicePixelRatio;
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      this.canvas.width = w * ratio;
+      this.canvas.height = h * ratio;
       this.drawFallback();
       return;
     }
@@ -360,33 +386,59 @@ export class VirtualStage {
     return Math.max(w / 2 / Math.tan(hz), h / 2 / Math.tan(v));
   }
 
+  // Fit all corners at both desk and board height. Near corners need more room under perspective,
+  // so fitting only the rectangle's width and height can cut off the spill below the board.
+  fitRectangle(rect, tilt, fill, roll = 0) {
+    const [x0, y0, x1, y1] = rect;
+    const target = this.world((x0 + x1) / 2, (y0 + y1) / 2, BOARD_THICK / 2);
+    const halfW = (x1 - x0) / 2000, halfH = (y1 - y0) / 2000;
+    const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * fill;
+    const tanH = tanV * this.camera.aspect;
+    const c = Math.cos(tilt), s = Math.sin(tilt), cr = Math.cos(roll), sr = Math.sin(roll);
+    let d = 0;
+    for (const x of [-halfW, halfW]) {
+      for (const z of [-halfH, halfH]) {
+        for (const y of [-BOARD_THICK / 2, BOARD_THICK / 2 + 0.0002]) {
+          const screenY = y * s - z * c;
+          const depth = y * c + z * s;
+          d = Math.max(d, depth + Math.abs(x * cr - screenY * sr) / tanH,
+            depth + Math.abs(x * sr + screenY * cr) / tanV);
+        }
+      }
+    }
+    return { target, d };
+  }
+
   overviewPose() {
-    const [bx0, by0, bx1, by1] = this.b.board_mm;
-    const target = this.world(this.centre[0], this.centre[1] + 20, 0);
-    const w = (bx1 - bx0) / 1000, h = ((by1 - by0) / 1000) * Math.cos(OVERVIEW.polar) + 0.08;
-    const d = this.fitDistance(w, h) / (this.camera.aspect < 1 ? OVERVIEW.fill * 0.86 : OVERVIEW.fill);
+    const fill = this.camera.aspect < 1 ? OVERVIEW.fill * 0.86 : OVERVIEW.fill;
+    const { target, d } = this.fitRectangle(this.texRect, OVERVIEW.polar, fill);
     const dir = new THREE.Vector3().setFromSphericalCoords(1, OVERVIEW.polar, OVERVIEW.azimuth);
     return { target, position: target.clone().addScaledVector(dir, d), roll: 0 };
   }
 
   // The show's own camera at t: a crop of the drawing (centre x, y and width w as fractions of the drawing),
-  // opening to the whole board as f goes to 1. The crop keeps the projected output's aspect.
+  // opening to the whole texture as f goes to 1. The final motion beat also opens the view so the
+  // desk spill remains visible through the hold, even when the engine's full-frame blend stays at zero.
   followPose(t) {
     const P = this.path;
     const k = Math.min(P.poses.length - 1, Math.max(0, t * P.rate));
     const i = Math.floor(k), j = Math.min(P.poses.length - 1, i + 1), a = k - i;
     const p = P.poses[i].map((v, n) => v + (P.poses[j][n] - v) * a);
     const [x, y, w, f, roll] = p;
+    const ending = this.info.hold > this.endingStart
+      ? smooth(THREE.MathUtils.clamp((t - this.endingStart) / (this.info.hold - this.endingStart), 0, 1))
+      : Number(t >= this.info.hold);
+    const fullBlend = f + (1 - f) * ending;
+    const framedRoll = roll * (1 - ending);
     const [dw, dh] = this.b.drawing_mm;
     const [ow, oh] = this.info.output;
     const cw = (w * dw) / 1000, ch = (cw * oh) / ow;
     const crop = { target: this.world(x * dw, y * dh, BOARD_THICK), d: this.fitDistance(cw, ch) };
-    const [tx0, ty0, tx1, ty1] = this.b.board_mm;
-    const full = { target: this.world((tx0 + tx1) / 2, (ty0 + ty1) / 2, 0), d: this.fitDistance((tx1 - tx0) / 1000, (ty1 - ty0) / 1000) * 1.06 };
-    const target = crop.target.clone().lerp(full.target, f);
-    const d = Math.exp(Math.log(crop.d) + (Math.log(full.d) - Math.log(crop.d)) * f);
+    const full = this.fitRectangle(this.texRect, FOLLOW_TILT, 0.92, framedRoll);
+    const target = crop.target.clone().lerp(full.target, fullBlend);
+    const d = Math.exp(Math.log(crop.d) + (Math.log(full.d) - Math.log(crop.d)) * fullBlend);
     const dir = new THREE.Vector3(0, Math.cos(FOLLOW_TILT), Math.sin(FOLLOW_TILT));
-    return { target, position: target.clone().addScaledVector(dir, d), roll };
+    return { target, position: target.clone().addScaledVector(dir, d), roll: framedRoll };
   }
 
   setPose(pose) {
@@ -405,6 +457,7 @@ export class VirtualStage {
   }
 
   setFollow(on, silent = false) {
+    if (!this.ready || this.fallback) return;
     if (on && !this.path) {
       this.onStatus({ tone: "warn", text: "The show's camera path is still loading." });
       on = false;
@@ -432,6 +485,7 @@ export class VirtualStage {
   }
 
   resetView() {
+    if (!this.ready || this.fallback) return;
     this.touched = true;
     if (this.follow) this.setFollow(false);
     const to = this.overviewPose();
@@ -439,6 +493,7 @@ export class VirtualStage {
   }
 
   zoom(factor) {
+    if (!this.ready || this.fallback) return;
     this.userMoved();
     const c = this.controls;
     const off = this.camera.position.clone().sub(c.target);
@@ -448,6 +503,7 @@ export class VirtualStage {
   }
 
   orbit(dAz, dPolar) {
+    if (!this.ready || this.fallback) return;
     this.userMoved();
     const c = this.controls;
     const off = this.camera.position.clone().sub(c.target);
@@ -570,6 +626,7 @@ export class VirtualStage {
 
   showTexture(bmp, meta) {
     if (this.fallback) {
+      if (this.flat && this.flat !== bmp) this.flat.close();
       this.flat = bmp;
       this.drawFallback();
       this.firstFrame();
@@ -605,13 +662,16 @@ export class VirtualStage {
     const W = this.canvas.width, H = this.canvas.height;
     g.fillStyle = "#0b0806";
     g.fillRect(0, 0, W, H);
-    if (!this.flat) return;
-    const s = Math.min(W / this.flat.width, H / this.flat.height) * 0.94;
-    const w = this.flat.width * s, h = this.flat.height * s;
+    const image = this.videoEl || this.flat;
+    if (!image || (this.videoEl && this.videoEl.readyState < 2)) return;
+    const iw = this.videoEl ? image.videoWidth : image.width;
+    const ih = this.videoEl ? image.videoHeight : image.height;
+    const s = Math.min(W / iw, H / ih) * 0.94;
+    const w = iw * s, h = ih * s;
     g.save();
-    g.translate((W - w) / 2, (H + h) / 2);
-    g.scale(1, -1); // bitmaps arrive flipped for WebGL
-    g.drawImage(this.flat, 0, 0, w, h);
+    g.translate((W - w) / 2, this.videoEl ? (H - h) / 2 : (H + h) / 2);
+    if (!this.videoEl) g.scale(1, -1); // API bitmaps arrive flipped for WebGL; videos are already upright.
+    g.drawImage(image, 0, 0, w, h);
     g.restore();
   }
 

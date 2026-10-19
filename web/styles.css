@@ -91,11 +91,9 @@ b { color: var(--parchment); font-weight: 600; }
   box-shadow: inset 0 0 0 1px rgba(255, 240, 200, .35), 0 1px 10px rgba(201, 162, 74, .25);
 }
 
-/* Static site: Scan Tapestry is a link to the local app, unavailable while that backend is down. */
+/* A failed local-app probe still offers setup and direct navigation. */
 .mode-tab .tab-note { display: none; font-weight: 500; font-size: 12px; letter-spacing: .02em; }
-.mode-tab[aria-disabled="true"] { cursor: not-allowed; opacity: .6; }
-.mode-tab[aria-disabled="true"]:hover { color: var(--iron); }
-.mode-tab[aria-disabled="true"] .tab-note { display: inline; color: var(--parchment); }
+.mode-tab[data-available="false"] .tab-note { display: inline; color: var(--parchment); }
 
 .setup-toggle {
   justify-self: end; display: flex; align-items: center; gap: 8px;

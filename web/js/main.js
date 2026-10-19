@@ -9,13 +9,17 @@ const prefs = loadPrefs();
 let info, pb, virtual, scan;
 let mode = "virtual";
 let virtualStatus = null;
+let virtualError = null;
 let dragging = false;
 let resumeAfterDrag = false;
 let lastSecond = -1;
 let toastTimer = 0;
 let idleTimer = 0;
 
-boot();
+boot().catch((err) => {
+  hideLoading();
+  showNotice({ kicker: "Loading", tone: "bad", title: "The show could not be started", text: err.message, actions: ["reload"] });
+});
 
 async function boot() {
   showLoading("Loading the show");
@@ -60,11 +64,8 @@ async function boot() {
   scan.setView({ follow: prefs.scanFollow ?? false, overlay: false });
   $("cine-switch").checked = scan.follow;
 
-  const { VirtualStage } = await import("./virtual.js").catch((err) => {
-    toast(`3D view failed to load: ${err.message}`, 8000);
-    return {};
-  });
-  if (VirtualStage) {
+  try {
+    const { VirtualStage } = await import("./virtual.js");
     virtual = new VirtualStage({
       canvas: $("virtual-canvas"), info, playback: pb,
       onStatus: (s) => { virtualStatus = s; renderStatus(); },
@@ -72,14 +73,20 @@ async function boot() {
     });
     virtual.onFirstFrame = () => { hideLoading(); renderStatus(); };
     await virtual.init();
+  } catch (err) {
+    if (virtual) virtual.deactivate();
+    virtual = null;
+    virtualError = { kicker: "Virtual Explore", tone: "bad", title: "The view could not be loaded", text: err.message, actions: ["reload"] };
   }
-  pb.setGate(() => (virtual ? virtual.gateReason() : null));
+  pb.setGate(() => (virtual ? virtual.gateReason() : "The view is unavailable"));
   if (virtual) {
     virtual.activate();
     if (!virtual.hasFrame) showLoading("Laying out the board");
   } else {
     hideLoading();
   }
+  renderFollow();
+  renderStatus();
   if (location.hash === "#scan" && !STATIC) setMode("scan");
   requestAnimationFrame(tick);
   window.addEventListener("pagehide", () => {
@@ -120,7 +127,7 @@ async function setMode(next) {
   } else {
     await scan.deactivate();
     if (mode !== "virtual") return;
-    pb.setGate(() => (virtual ? virtual.gateReason() : null));
+    pb.setGate(() => (virtual ? virtual.gateReason() : "The view is unavailable"));
     if (virtual) {
       virtual.activate();
       if (!virtual.hasFrame) showLoading("Laying out the board");
@@ -144,7 +151,8 @@ function renderStatus() {
     if (d.notice) showNotice(d.notice);
     else hideNotice();
   } else {
-    hideNotice();
+    if (virtualError) showNotice(virtualError);
+    else hideNotice();
     if (virtualStatus) d = { pill: virtualStatus };
     else if (pb.blocked) d = { pill: { tone: "busy", text: pb.blocked } };
   }
@@ -175,6 +183,8 @@ const ACTIONS = {
   stop: () => ({ label: "Stop", run: () => scan.stop() }),
   phone: () => ({ label: "Use a phone instead", run: () => { selectSource("phone"); openSetup(true); } }),
   reload: () => ({ label: "Reload", primary: true, run: () => location.reload() }),
+  backend: () => ({ label: "Open local app", primary: true, run: () => { location.href = `${BACKEND}/#scan`; } }),
+  stay: () => ({ label: "Stay in Virtual Explore", run: () => { hideNotice(); $("tab-scan").focus(); } }),
 };
 
 function showNotice(n) {
@@ -288,6 +298,8 @@ function wireTransport() {
 
 function renderTransport() {
   const t = pb.time;
+  $("prev-btn").disabled = t <= 0;
+  $("next-btn").disabled = t >= info.end;
   const sc = $("scrubber");
   if (!dragging) sc.value = String(t);
   const stitches = $("thread-track").children;
@@ -317,8 +329,6 @@ function renderScene() {
   $("scene").title = b.desc;
   const stitches = $("thread-track").children;
   for (let k = 0; k < stitches.length; k++) stitches[k].classList.toggle("current", k === i);
-  $("prev-btn").disabled = pb.time <= 0 && i === 0;
-  $("next-btn").disabled = i >= info.beats.length - 1 && pb.time >= info.end;
   lastSecond = -1;
 }
 
@@ -366,8 +376,12 @@ function setFollow(on) {
 
 function renderFollow() {
   const on = currentFollow();
+  const unavailable = mode === "virtual" && (!virtual || !!virtual.fallback);
   $("follow-btn").setAttribute("aria-pressed", String(on));
+  $("follow-btn").disabled = unavailable;
   $("follow-switch").checked = !!(virtual && virtual.follow);
+  $("follow-switch").disabled = !virtual || !!virtual.fallback;
+  for (const id of ["reset-view-btn", "reset-view-btn-2", "zoom-in-btn", "zoom-out-btn"]) $(id).disabled = !virtual || !!virtual.fallback;
   $("cine-switch").checked = scan.follow;
 }
 
@@ -514,7 +528,7 @@ function removeSound() {
 }
 
 // The static site is Virtual Explore. Scan Tapestry needs the Python backend, so its tab is a link to the local app,
-// and it stays unavailable (with a note) while that backend is not answering.
+// A failed probe can also mean the browser blocks local-network requests, so keep a direct navigation action.
 const BACKEND_POLL_MS = 5000;
 let backendUp = false;
 
@@ -523,9 +537,9 @@ function makeStatic() {
   document.querySelector('.setup-mode[data-for="scan"]').hidden = true;
   $("about-view").textContent = "The animation was rendered by the tapestry engine and is laid onto a virtual board, with the four tracking markers where they sit on the real one. Scan Tapestry, the camera-tracked version, needs the project’s backend running on this computer.";
   const tab = $("tab-scan");
+  tab.tabIndex = 0;
   const note = document.createElement("span");
   note.className = "tab-note";
-  note.textContent = "Backend is down";
   tab.append(note);
   setBackend(false);
   const poll = async () => {
@@ -539,13 +553,20 @@ function makeStatic() {
 function setBackend(up) {
   backendUp = up;
   const tab = $("tab-scan");
-  tab.setAttribute("aria-disabled", String(!up));
-  tab.title = up ? "Open Scan Tapestry in the local app" : "Backend is down. Start server.py on this computer to use Scan Tapestry.";
+  tab.dataset.available = String(up);
+  tab.querySelector(".tab-note").textContent = up ? "Local app ready" : "Local app unavailable";
+  tab.title = up ? "Open Scan Tapestry in the local app" : "Scan Tapestry needs the local app. Click for setup and an option to open it.";
 }
 
 function openBackend(tab) {
   if (tab.dataset.mode !== "scan") return;
-  if (!backendUp) { toast("Backend is down. Start server.py on this computer to use Scan Tapestry.", 5000); return; }
+  if (!backendUp) {
+    showNotice({ kicker: "Scan Tapestry", tone: "warn", title: "Open the local app to scan the tapestry",
+      text: "Start server.py on this computer, then open the local app. Your browser may block this page from checking whether it is running; you can still open it directly.",
+      actions: ["backend", "stay"] });
+    $("notice-actions").querySelector("button").focus();
+    return;
+  }
   location.href = `${BACKEND}/#scan`;
 }
 
@@ -636,7 +657,8 @@ function wake() {
 // ---- preferences -----------------------------------------------------------------------------------------
 function loadPrefs() {
   try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   } catch {
     return {};
   }

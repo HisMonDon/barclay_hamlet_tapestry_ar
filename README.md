@@ -90,20 +90,16 @@ Web hosts like Vercel and GitHub Pages cannot run the Python engine, so the came
 .\.venv\Scripts\python.exe -m http.server 8080 --directory site
 ```
 
-The first command renders the board animation up to the hold into `site/media/board.mp4` (H.264, 1120 px wide, 30 fps, about 1.5 minutes to render) and writes the page and the show data beside it; the whole folder is about 38 MB. The site is silent and has no sound controls; `--audio` adds the soundtrack. The second previews it at http://localhost:8080. The page is the same Virtual Explore without the mode tabs or camera setup: orbit, pan, zoom, Reset view, Follow animation, the scrubber, scenes and the hold all work, with the video kept in step with the playback clock. It cannot re-render a sharper frame when paused, since there is no engine behind it. `--width` and `--crf` trade sharpness for size, `--fps` sets the frame rate, and `--page-only` rebuilds the page and data but keeps the existing video, for UI-only changes. `site/` is not committed; rebuild it after changing the show.
+The first command renders the board animation through the exact hold frame into `site/media/board.mp4` (H.264, 1120 px wide, 30 fps) and writes the page and the show data beside it. Render time and file size depend on the computer and show. The site is silent and has no sound controls; `--audio` adds the soundtrack. The second previews it at http://localhost:8080. Orbit, pan, zoom, Reset view, Follow animation, the scrubber, scenes and the hold work, with the video kept in step with the playback clock. Scan Tapestry opens the Python app on the visitor's own computer when it is running. Camera tracking in this project needs the Python backend; Pages serves the exported assets. The static site cannot re-render a sharper frame when paused. `--width` and `--crf` trade sharpness for size, and `--fps` sets the frame rate. For UI-only changes, `--page-only` keeps the existing video and checks that its show, artwork and renderer still match. If that check fails, run a full export. `site/` is not committed.
 
 Upload `site/` to any static host. All paths are relative, so it also works from a sub-path such as `https://USER.github.io/REPO/`.
 
-- **Vercel**: `npx vercel deploy site --prod`, sign in when asked, and accept the defaults (no framework, no build command). Hobby accounts can deploy from private repositories.
-- **GitHub Pages**: publish `site/` as a separate `gh-pages` branch, then choose **Settings → Pages → Deploy from a branch → gh-pages / (root)**. On a free account the repository must be public.
+Chrome may ask for local network permission before the hosted page can detect `server.py`; see [Chrome's Local Network Access documentation](https://developer.chrome.com/blog/local-network-access). If detection is blocked while the server is running, open **http://localhost:8000/#scan** directly on the same computer. For another server port, use that port in the local URL and append `?backend=http://localhost:8001` to the hosted page's URL.
 
-  ```powershell
-  cd site
-  git init -b gh-pages
-  git add -A
-  git commit -m "Static Virtual Explore"
-  git push -f https://github.com/HisMonDon/barclay_hamlet_tapestry_ar.git gh-pages
-  ```
+- **GitHub Pages (final demo)**: in the repository's **Settings → Pages → Build and deployment**, choose **GitHub Actions** as the source. The included [Pages workflow](.github/workflows/pages.yml) installs Python, tests the exporter, renders the current show, and publishes only `site/` whenever changes are pushed to `main`. You can also run it from **Actions → Deploy demo to GitHub Pages → Run workflow** on `main`. The deployment exposes the published URL; for this repository it is `https://hismondon.github.io/barclay_hamlet_tapestry_ar/`. GitHub Free requires a public repository for Pages. See [GitHub's custom workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+- **Other static hosts**: upload the contents of `site/`, using no framework and no server build command. The Python render happens before upload.
+
+Before the final demo, open the published URL on the presentation device and verify Play, seeking, Follow animation, fullscreen and the final hold. Keep the local preview available as a backup. A Pages workflow is included in the repository; repository settings and publishing still happen in GitHub.
 
 ### Positioning the artwork
 
@@ -233,9 +229,11 @@ Place original or licensed PCM WAV recordings in `assets/sfx/` named `crackle.wa
 .\.venv\Scripts\python.exe test_pipeline.py
 .\.venv\Scripts\python.exe -m unittest test_animation -v
 .\.venv\Scripts\python.exe -m unittest test_web -v
+.\.venv\Scripts\python.exe -m unittest test_static_export -v
+node --test test_frontend.mjs
 .\.venv\Scripts\python.exe benchmark.py --frames 90
 ```
 
-Tests cover both paper sizes, tracking and freeze on loss, ghost protection, story order, permanent ink, banner gaps and row reveal, deterministic embroidery, coverage across every story panel, soaked roots, desk spill, animation continuity, audio timing and silence, editor round trips, backup seeking and camera reconnect. `test_web` covers the browser back end: the soundtrack's length and silence, the virtual board texture as a pure function of t and its frozen hold, marker lock and loss on uploaded frames, the phone relay, the camera sources, and the server's localhost-only, pairing-key and TLS rules. Images and benchmark JSON are written under `test_out/`. `REVIEW.md` records the visual reviews; final sheets are under `review/`.
+Tests cover both paper sizes, tracking and freeze on loss, ghost protection, story order, permanent ink, banner gaps and row reveal, deterministic embroidery, coverage across every story panel, soaked roots, desk spill, animation continuity, audio timing and silence, editor round trips, backup seeking and camera reconnect. `test_web` covers the browser back end: the soundtrack's length and silence, the virtual board texture as a pure function of t and its frozen hold, marker lock and loss on uploaded frames, the phone relay, the camera sources, and the server's localhost-only, pairing-key and TLS rules. `test_static_export` checks project-subdirectory paths, video reuse validation, the exact hold frame, high-detail exports and recovery from interrupted rendering. `test_frontend.mjs` uses Node's built-in test runner to check browser playback and video synchronization without a browser. The Pages workflow runs these last two suites before publishing. Images and benchmark JSON are written under `test_out/`. `REVIEW.md` records the visual reviews; final sheets are under `review/`.
 
 Performance is machine- and camera-dependent. Benchmarking uses a synthetic 1080p input and includes marker tracking and the rendering path, but excludes physical camera driver latency, GUI presentation and real audio hardware. Occasional frames can exceed 33 ms even when segment averages exceed 30 fps. A frozen homography cannot compensate for a board being moved while its markers are hidden. Camera drivers that block on a read cannot block the projector loop, but may delay reconnection. Keep a rehearsed backup MP4 and its WAV beside it, test B before class, and use the actual classroom laptop/projector for the final check.
