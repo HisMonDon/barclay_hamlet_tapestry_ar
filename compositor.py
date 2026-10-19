@@ -79,7 +79,7 @@ class Compositor:
         rv = getattr(scene, "reveal", None)
         self.rev_inv = np.linalg.inv(rv.canvas.to_tapestry()) if rv is not None else None
         self.realism = None
-        if rv is not None and getattr(scene, "clean_ref", None) is not None:
+        if cfg.get("fx", {}).get("realism", True) and rv is not None and getattr(scene, "clean_ref", None) is not None:
             self.realism = Realism(cfg, scene.clean_ref, art, self.work, [x["geo"] for x in rv.panels])
         ink = getattr(scene, "ink", None)
         self.ink_live = ink is None or bool(np.isfinite(ink.T).any()) or ink.has_ghost
@@ -184,11 +184,17 @@ class Compositor:
             cv2.putText(out, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 90), 1, cv2.LINE_AA)
         return out
 
-    @staticmethod
-    def _paint(out, art, M, size):
-        img = cv2.warpPerspective(art, M, size, flags=INV, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    @classmethod
+    def _paint(cls, out, art, M, size):
+        # Only warp and blend the visible paper, not the entire camera frame.
+        roi = cls._roi((0, 0, art.shape[1], art.shape[0]), M, *size)
+        if roi is None:
+            return out
+        x0, y0, x1, y1 = roi
+        img = cls._warp_roi(art, M, roi, (0, 0, 0, 0))
         clear = cv2.subtract(255, img[..., 3])
-        return cv2.add(cv2.multiply(out, cv2.merge([clear, clear, clear]), scale=1 / 255), img[..., :3])
+        out[y0:y1, x0:x1] = cv2.add(cv2.multiply(out[y0:y1, x0:x1], cv2.merge([clear, clear, clear]), scale=1 / 255), img[..., :3])
+        return out
 
     def span_px(self, H, x, y, w):
         hw = 0.5 * w * self.tw

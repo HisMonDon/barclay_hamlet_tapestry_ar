@@ -247,6 +247,9 @@ class Handler(BaseHTTPRequestHandler):
                 if WEB.resolve() not in target.parents:
                     return self.error(HTTPStatus.NOT_FOUND, "Not found")
                 return self.file(target)
+            if path == "/api/ping":
+                # The static site (GitHub Pages) reads this to learn whether a backend is running on this computer.
+                return self.send(HTTPStatus.OK, b'{"ok":true}', headers={"Access-Control-Allow-Origin": "*"})
             if path == "/api/info":
                 return self.json({**e.info(), "phone": self.app.phone_info()})
             if path == "/api/camera-path":

@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tapestry-ui",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "server.py"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "tapestry-static",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "C:/Users/EricC/AppData/Local/Temp/claude/C--Users-EricC-All-Coding-Projects-school-projects-barclay-hamlet-tapestry-ar/a387be7d-b793-4472-8531-bd11d75c6228/scratchpad/static_serve.py",
+        "8080",
+        "site"
+      ],
+      "port": 8080
+    }
+  ]
+}

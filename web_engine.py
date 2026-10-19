@@ -6,7 +6,8 @@ seeking and restarting stay in step with the sound.
 
 Virtual Explore asks for a flat texture of the whole board: the printed drawing, the white board with its four
 markers and a strip of desk for the spill, all composited at t without any camera. Scan Tapestry sends camera
-frames (or uses a stream URL or the phone relay) and gets back the tracked composite that app.py would show.
+frames (or uses a stream URL or the phone relay) to track the paper, then replaces the drawing with digital
+artwork and the animated show. The desk outside the paper stays live.
 """
 
 import threading
@@ -16,7 +17,8 @@ import cv2
 import numpy as np
 
 from app import Renderer
-from config import CONFIG, default_beats, load
+from compositor import Compositor
+from config import CONFIG, default_beats, load, resolve
 from live import ResilientCamera
 from reference import wood
 from render import load_source
@@ -213,6 +215,17 @@ class WebEngine:
         # The browser scales the picture to the screen itself, so the scan composite is sent at the
         # compositor's working size rather than resized to the output size and encoded at twice the pixels.
         self.comp.ow, self.comp.oh = self.comp.work
+        # Camera pixels supply the surroundings and marker positions, not the drawing's detail.
+        # Keep a separate compositor so Scan settings never affect Virtual Explore.
+        artwork_path = resolve(cfg, cfg.get("camera_input", {}).get("artwork", "assets/hamlet_tapestry.png"))
+        artwork = cv2.imread(str(artwork_path), cv2.IMREAD_COLOR)
+        if artwork is None:
+            raise ValueError(f"Could not read camera tapestry artwork: {artwork_path}")
+        scan_cfg = {**cfg, "fx": {**cfg["fx"], "realism": False, "dof": False, "bloom": False, "motes": False}}
+        self.scan_comp = Compositor(scan_cfg, self.scene, self.timeline)
+        self.scan_comp.set_source_artwork(artwork)
+        self.scan_comp.ow, self.scan_comp.oh = self.scan_comp.work
+        self.renderer.comp = self.scan_comp
         self.lock = threading.RLock()
         self.board = Board(cfg, self.scene.scan if self.scene.scan is not None else load_source(cfg, None))
         self.soundtrack = Soundtrack(cfg, self.timeline, self.scene)
@@ -289,7 +302,7 @@ class WebEngine:
             out, locked = self.renderer.render(frame, t, follow)
             tr = self.renderer.tracker
             if overlay and locked:
-                out = self.comp.debug(out)
+                out = self.scan_comp.debug(out)
             tracking = "searching" if tr.H is None else "locked" if tr.found else "lost"
             seen = [int(x) for x in tr.seen]
         data = encode(out, 82)
