@@ -160,12 +160,15 @@ export class Playback extends EventTarget {
 
   // ---- transport --------------------------------------------------------------------------------------
   async play() {
+    // Record intent before awaiting browser audio permission so Pause can cancel a pending Play.
+    if (this.time >= this.end - 1e-3) this.seek(0);
+    this.wantPlay = true;
+    this.emit("state");
     const ctx = this.ensureContext();
     if (ctx && ctx.state !== "running") {
       try { await ctx.resume(); } catch { /* stays on the performance clock */ }
     }
-    if (this.time >= this.end - 1e-3) this.seek(0);
-    this.wantPlay = true;
+    if (!this.wantPlay) return;
     this.update();
     this.emit("state");
   }
@@ -223,6 +226,7 @@ export class Playback extends EventTarget {
       this.emit("ended");
     }
     // A clock started before the AudioContext was allowed to run switches over once it can.
+    if (this.running && this.src === "audio" && this.ctx.state !== "running") this.anchor(this.time, false);
     if (this.running && this.src === "perf" && this.buffer && this.ctx && this.ctx.state === "running") this.anchor(this.time, true);
     this.update();
     const b = this.beat;
