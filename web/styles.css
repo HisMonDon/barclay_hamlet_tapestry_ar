@@ -91,9 +91,10 @@ b { color: var(--parchment); font-weight: 600; }
   box-shadow: inset 0 0 0 1px rgba(255, 240, 200, .35), 0 1px 10px rgba(201, 162, 74, .25);
 }
 
-/* A failed local-app probe still offers setup and direct navigation. */
+/* Static Scan connects to the backend from this page. */
 .mode-tab .tab-note { display: none; font-weight: 500; font-size: 12px; letter-spacing: .02em; }
 .mode-tab[data-available="false"] .tab-note { display: inline; color: var(--parchment); }
+.mode-tab[aria-selected="true"] .tab-note { color: inherit; }
 
 .setup-toggle {
   justify-self: end; display: flex; align-items: center; gap: 8px;

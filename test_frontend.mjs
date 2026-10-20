@@ -231,43 +231,289 @@ test("the opening walks up to the desk, looks down at the board and hands over t
   assert.equal(stage.endIntro(), false, "ending twice is a no-op");
 });
 
-test("a blocked local-app probe still offers direct navigation and a way to stay", () => {
+function netModule({ hosted = true, search = "", fetch = async () => ({ ok: true, json: async () => ({}) }) } = {}) {
+  const source = readFileSync(new URL("./web/js/net.js", import.meta.url), "utf8")
+    .replace(/^export /gm, "");
+  const sandbox = {
+    URL, URLSearchParams, AbortController, setTimeout, clearTimeout, fetch,
+    document: { querySelector: () => hosted ? {} : null },
+    location: { search, href: "https://example.github.io/project/", origin: "https://example.github.io" },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${source}\nthis.net = { STATIC, BACKEND, URLS, apiURL, apiFetch, getJSON, postJSON };`, sandbox);
+  return sandbox.net;
+}
+
+test("hosted pages send API requests to the backend while retaining static assets", () => {
+  const hosted = netModule({ search: "?backend=http%3A%2F%2Flocalhost%3A8001%2Fignored" });
+  assert.equal(hosted.apiURL("/api/source"), "http://localhost:8001/api/source");
+  assert.equal(hosted.apiURL("/api/scan?t=1&overlay=0"), "http://localhost:8001/api/scan?t=1&overlay=0");
+  for (const asset of ["data/info.json", "media/board.mp4", "media/soundtrack.wav", "data/camera-path.json"]) {
+    assert.equal(hosted.apiURL(asset), asset);
+  }
+  assert.equal(hosted.apiURL("/apiculture"), "/apiculture");
+  assert.equal(hosted.apiURL("https://example.com/api/info"), "https://example.com/api/info");
+  const local = netModule({ hosted: false });
+  assert.equal(local.apiURL("/api/source"), "/api/source");
+});
+
+test("backend JSON requests omit credentials and identify loopback access", async () => {
+  const calls = [];
+  const net = netModule({ fetch: async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, json: async () => ({ ok: true }) };
+  } });
+  assert.equal((await net.getJSON("/api/info")).ok, true);
+  assert.equal((await net.postJSON("/api/source", { kind: "browser" })).ok, true);
+  assert.equal(calls[0].url, "http://localhost:8000/api/info");
+  assert.equal(calls[1].url, "http://localhost:8000/api/source");
+  for (const { options } of calls) {
+    assert.equal(options.credentials, "omit");
+    assert.equal(options.targetAddressSpace, "loopback");
+    assert.equal(options.cache, "no-store");
+  }
+  assert.equal(calls[1].options.method, "POST");
+  assert.equal(calls[1].options.headers["X-Tapestry"], "1");
+  assert.equal(calls[1].options.headers["Content-Type"], "application/json");
+  assert.deepEqual(JSON.parse(calls[1].options.body), { kind: "browser" });
+});
+
+test("backend overrides accept loopback URLs and reject off-computer or credentialed destinations", () => {
+  for (const backend of ["http://localhost:8001", "http://127.0.0.1:8002", "https://[::1]:8443"]) {
+    const net = netModule({ search: `?backend=${encodeURIComponent(backend)}` });
+    assert.equal(net.BACKEND, backend);
+    assert.equal(net.apiURL("/api/source"), `${backend}/api/source`);
+  }
+  for (const backend of [
+    "https://renderer.example.com", "http://192.168.1.2:8000", "https://localhost.example.com",
+    "http://localhost@renderer.example.com", "http://user:password@localhost:8000",
+    "ftp://localhost:8000", "javascript:alert(1)", "not a URL",
+  ]) {
+    const net = netModule({ search: `?backend=${encodeURIComponent(backend)}` });
+    assert.equal(net.BACKEND, "http://localhost:8000", backend);
+    assert.equal(net.apiURL("/api/source"), "http://localhost:8000/api/source", backend);
+  }
+});
+
+test("backend API errors reach the caller", async () => {
+  let call;
+  const net = netModule({ search: "?backend=http%3A%2F%2F127.0.0.1%3A8001", fetch: async (url, options) => {
+    call = { url, options };
+    return { ok: false, status: 409, json: async () => ({ error: "Camera is busy" }) };
+  } });
+  await assert.rejects(net.postJSON("/api/source", { kind: "browser" }), /Camera is busy/);
+  assert.equal(call.url, "http://127.0.0.1:8001/api/source");
+  assert.equal(call.options.credentials, "omit");
+  assert.equal(call.options.targetAddressSpace, "loopback");
+});
+
+function scanClass(extra = {}) {
+  const source = readFileSync(new URL("./web/js/scan.js", import.meta.url), "utf8")
+    .replace(/^import .*;\r?\n/gm, "")
+    .replace(/^export /gm, "");
+  const sandbox = { performance, ...extra };
+  vm.createContext(sandbox);
+  vm.runInContext(`${source}\nthis.ScanStage = ScanStage;`, sandbox);
+  return sandbox.ScanStage;
+}
+
+test("Scan uploads frames through the backend client and uses cross-origin tracking metadata", async () => {
+  const jpeg = { type: "image/jpeg" };
+  const bitmap = { width: 1280, height: 720, close() {} };
+  const meta = { locked: true, tracking: "tracking", seen: [0, 1, 2, 3] };
+  let request, shown, accepted;
+  const ScanStage = scanClass({
+    fetch: () => assert.fail("Scan must use the backend client for hosted pages"),
+    apiFetch: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        headers: { get: (name) => name === "X-Meta" ? JSON.stringify(meta) : "image/jpeg" },
+        blob: async () => jpeg,
+      };
+    },
+    createImageBitmap: async (blob) => { assert.equal(blob, jpeg); return bitmap; },
+  });
+  const stage = Object.assign(Object.create(ScanStage.prototype), {
+    active: true, kind: "browser", inFlight: 0, pollAt: 0, follow: true, overlay: false,
+    frozenKey: null, token: 1, seq: 0, shown: 0, latency: 0.08,
+    video: { readyState: 2, videoWidth: 1280 },
+    pb: { time: 2, hold: 10, running: false },
+    grab: async () => jpeg,
+    draw: (bmp) => { shown = bmp; },
+    accept: (data, key) => { accepted = { data, key }; },
+    set: (_state, message) => assert.fail(message),
+  });
+  await stage.pump();
+  assert.equal(request.url, "/api/scan?t=2.0000&follow=1&overlay=0&source=browser");
+  assert.equal(request.options.method, "POST");
+  assert.equal(request.options.body, jpeg);
+  assert.equal(request.options.headers["Content-Type"], "image/jpeg");
+  assert.equal(request.options.headers["X-Tapestry"], "1");
+  assert.equal(shown, bitmap);
+  assert.deepEqual(JSON.parse(JSON.stringify(accepted.data)), meta);
+  assert.equal(accepted.key, "true:false");
+  assert.equal(stage.inFlight, 0);
+});
+
+const hostedInfo = {
+  title: "Hamlet: The tapestry", end: 8, hold: 6, audio: true, min_markers: 4,
+  beats: [
+    { id: "S1", name: "Opening", start: 0, duration: 6, hold: false, silence: false },
+    { id: "S2", name: "Hold", start: 6, duration: 2, hold: true, silence: false },
+  ],
+  board: {
+    drawing_mm: [279.4, 431.8], marker_mm: 40, gap_mm: 8, paper: "11x17",
+    markers_mm: { 0: [[-48, -48], [-8, -48], [-8, -8], [-48, -8]] },
+  },
+  phone: { enabled: false },
+};
+
+function mainApp(getJSON = async () => structuredClone(hostedInfo)) {
   const source = readFileSync(new URL("./web/js/main.js", import.meta.url), "utf8")
     .replace(/^import .*;\r?\n/gm, "")
     .replace(/boot\(\)\.catch\(\(err\) => \{[\s\S]*?\n\}\);/, "");
-  const note = {};
-  const tab = { dataset: { mode: "scan" }, querySelector: () => note, focus() {} };
-  const elements = {
-    "tab-scan": tab,
-    notice: { hidden: true, querySelector: () => ({ dataset: {} }) },
-    "notice-kicker": {}, "notice-title": {}, "notice-text": {},
-    "notice-actions": {
-      dataset: {}, children: [],
-      replaceChildren(...children) { this.children = children; },
-      querySelector() { return this.children[0]; },
-    },
+  const elements = new Map();
+  const element = (id) => {
+    if (!elements.has(id)) elements.set(id, {
+      hidden: false, dataset: {}, parentElement: {},
+      classList: { toggle() {}, add() {}, remove() {} },
+      setAttribute(name, value) { this[name] = value; },
+      focus() {}, querySelector: () => ({ dataset: {} }),
+    });
+    return elements.get(id);
   };
-  const location = { href: "https://example.github.io/project/" };
+  const state = { scanActivations: 0, virtualActivations: 0 };
+  const scan = {
+    active: false, follow: false,
+    activate() { this.active = true; state.scanActivations++; },
+    async deactivate() { this.active = false; },
+    gateReason: () => "Start a camera to begin",
+    describe: () => ({ line: { text: "No camera running." } }),
+  };
+  const virtual = {
+    active: true, hasFrame: true,
+    activate() { this.active = true; state.virtualActivations++; },
+    deactivate() { this.active = false; },
+    gateReason: () => null,
+  };
+  const location = {
+    href: "https://example.github.io/project/?backend=http%3A%2F%2Flocalhost%3A8000",
+    pathname: "/project/", search: "?backend=http%3A%2F%2Flocalhost%3A8000", hash: "",
+  };
   const sandbox = {
-    BACKEND: "http://localhost:8000", window: {}, location, postJSON() {},
+    STATIC: true, BACKEND: "http://localhost:8000", window: {}, location, getJSON, postJSON() {},
+    AbortController, setTimeout, clearTimeout, URL, URLSearchParams,
+    history: { replaceState(_state, _title, url) { state.historyURL = url; } },
     localStorage: { getItem: () => null },
     document: {
-      getElementById: (id) => elements[id], querySelector: () => null,
-      createElement: () => ({ addEventListener(_event, run) { this.click = run; }, focus() {} }),
+      getElementById: element, querySelector: () => null, querySelectorAll: () => [],
+      documentElement: { classList: { toggle() {}, add() {}, remove() {} } },
     },
+    __info: structuredClone(hostedInfo), __scan: scan, __virtual: virtual,
+    __playback: { setGate(gate) { state.gate = gate; }, update() {} },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${source}\nthis.setBackend = setBackend; this.openBackend = openBackend;`, sandbox);
-  sandbox.setBackend(false);
-  assert.equal(note.textContent, "Local app unavailable");
-  sandbox.openBackend(tab);
-  assert.equal(elements.notice.hidden, false);
-  assert.match(elements["notice-text"].textContent, /browser may block/);
-  const [open, stay] = elements["notice-actions"].children;
-  stay.click();
-  assert.equal(elements.notice.hidden, true);
-  open.click();
-  assert.equal(location.href, "http://localhost:8000/#scan");
-  sandbox.setBackend(true);
-  assert.equal(note.textContent, "Local app ready");
+  vm.runInContext(`${source}
+    info = this.__info; scan = this.__scan; virtual = this.__virtual; pb = this.__playback;
+    renderStatus = () => {}; renderFollow = () => {}; configurePhone = () => {};
+    this.main = { setMode, connectBackend, sameShow, actions: ACTIONS,
+      get mode() { return mode; }, get ready() { return backendReady; },
+      get error() { return backendError; }, get description() { return backendDescription(); } };
+  `, sandbox);
+  return { app: sandbox.main, state, scan, virtual, location, elements };
+}
+
+test("hosted Scan connects to a compatible backend without leaving GitHub Pages", async () => {
+  const requests = [];
+  const { app, scan, virtual, state, location } = mainApp(async (url) => {
+    requests.push(url);
+    return structuredClone(hostedInfo);
+  });
+  const originalURL = location.href;
+  await app.setMode("scan");
+  assert.equal(app.mode, "scan");
+  assert.equal(app.ready, true);
+  assert.equal(scan.active, true);
+  assert.equal(virtual.active, false);
+  assert.equal(state.scanActivations, 1);
+  assert.deepEqual(requests, ["/api/info"]);
+  assert.equal(location.href, originalURL);
+  assert.equal(state.historyURL, "#scan");
+});
+
+test("an unavailable hosted backend offers retry and recovers when manually started", async () => {
+  let running = false;
+  const { app, scan, location } = mainApp(async () => {
+    if (!running) throw new Error("Failed to fetch");
+    return structuredClone(hostedInfo);
+  });
+  const originalURL = location.href;
+  await app.setMode("scan");
+  assert.equal(app.mode, "scan");
+  assert.equal(scan.active, false);
+  assert.equal(app.ready, false);
+  assert.match(app.description.notice.text, /server\.py/);
+  assert.ok(app.description.notice.actions.includes("backend"));
+  assert.ok(app.description.notice.actions.includes("virtual"));
+  running = true;
+  await app.actions.backend().run();
+  assert.equal(app.ready, true);
+  assert.equal(scan.active, true);
+  assert.equal(location.href, originalURL);
+});
+
+test("the backend connection notice can return to Virtual Explore", async () => {
+  const { app, virtual, scan, state } = mainApp(async () => { throw new Error("Failed to fetch"); });
+  await app.setMode("scan");
+  await app.actions.virtual().run();
+  assert.equal(app.mode, "virtual");
+  assert.equal(virtual.active, true);
+  assert.equal(scan.active, false);
+  assert.match(state.historyURL, /^\/project\/\?backend=/);
+});
+
+test("a connection response arriving after returning to Virtual does not activate Scan", async () => {
+  let finish;
+  const { app, scan, virtual, state } = mainApp(() => new Promise((resolve) => { finish = resolve; }));
+  const connecting = app.setMode("scan");
+  const pending = app.connectBackend();
+  await app.setMode("virtual");
+  finish(structuredClone(hostedInfo));
+  await Promise.all([connecting, pending]);
+  assert.equal(app.mode, "virtual");
+  assert.equal(scan.active, false);
+  assert.equal(virtual.active, true);
+  assert.equal(state.scanActivations, 0);
+});
+
+test("a mismatched local show is rejected before Scan can start", async () => {
+  const different = structuredClone(hostedInfo);
+  different.beats[0].duration += 1;
+  const { app, scan } = mainApp(async () => different);
+  await app.setMode("scan");
+  assert.equal(app.ready, false);
+  assert.equal(scan.active, false);
+  assert.ok(app.error);
+  assert.match(app.description.notice.text, /match|same|different|version/i);
+});
+
+test("show compatibility checks timing and board geometry while allowing transport metadata", () => {
+  const { app } = mainApp();
+  const compatible = structuredClone(hostedInfo);
+  compatible.phone = { enabled: true, urls: ["https://192.168.1.2:8443/phone"] };
+  compatible.quality = "render";
+  compatible.output = [1920, 1080];
+  assert.equal(app.sameShow(hostedInfo, compatible), true);
+  for (const change of [
+    (copy) => { copy.hold += 1; },
+    (copy) => { copy.end += 1; },
+    (copy) => { copy.beats[0].start += 0.5; },
+    (copy) => { copy.board.gap_mm += 1; },
+    (copy) => { copy.board.markers_mm[0][0][0] += 1; },
+  ]) {
+    const incompatible = structuredClone(hostedInfo);
+    change(incompatible);
+    assert.equal(app.sameShow(hostedInfo, incompatible), false);
+  }
 });

@@ -1,6 +1,6 @@
 import { Playback, formatTime } from "./playback.js";
 import { ScanStage, listCameras } from "./scan.js";
-import { BACKEND, getJSON, pingBackend, postJSON, STATIC, URLS } from "./net.js";
+import { apiFetch, apiURL, getJSON, postJSON, STATIC, URLS } from "./net.js";
 
 const $ = (id) => document.getElementById(id);
 const PREFS_KEY = "tapestry.ui";
@@ -16,6 +16,11 @@ let lastSecond = -1;
 let toastTimer = 0;
 let idleTimer = 0;
 let introTimer = 0;
+let backendReady = !STATIC;
+let backendPending = false;
+let backendError = null;
+let backendConnection = null;
+let phoneInfo = null;
 
 boot().catch((err) => {
   hideLoading();
@@ -81,7 +86,7 @@ async function boot() {
     virtualError = { kicker: "Virtual Explore", tone: "bad", title: "The view could not be loaded", text: err.message, actions: ["reload"] };
   }
   pb.setGate(() => (virtual ? virtual.gateReason() : "The view is unavailable"));
-  const toScan = location.hash === "#scan" && !STATIC;
+  const toScan = location.hash === "#scan";
   if (virtual) {
     if (!toScan) startIntro();
     virtual.activate();
@@ -94,7 +99,7 @@ async function boot() {
   if (toScan) setMode("scan");
   requestAnimationFrame(tick);
   window.addEventListener("pagehide", () => {
-    if (scan.kind && !STATIC) fetch("/api/source", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", "X-Tapestry": "1" }, body: '{"kind":"none"}' });
+    if (scan.kind) apiFetch("/api/source", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", "X-Tapestry": "1" }, body: '{"kind":"none"}' }).catch(() => {});
   });
 }
 
@@ -126,8 +131,9 @@ async function setMode(next) {
   hideLoading();
   if (mode === "scan") {
     virtual && virtual.deactivate();
-    pb.setGate(() => scan.gateReason());
-    scan.activate();
+    pb.setGate(() => !backendReady ? "Connect to the renderer to begin" : scan.gateReason());
+    if (STATIC) await connectBackend();
+    else scan.activate();
   } else {
     await scan.deactivate();
     if (mode !== "virtual") return;
@@ -147,11 +153,12 @@ function renderStatus() {
   const pill = $("status-pill");
   let d = null;
   if (mode === "scan") {
-    d = scan.describe(sourceLabel());
+    d = STATIC && !backendReady ? backendDescription() : scan.describe(sourceLabel());
     const line = $("source-status");
     line.textContent = d.line ? d.line.text : "";
     line.dataset.tone = d.line ? d.line.tone : "";
     $("source-stop").hidden = !scan.kind;
+    $("source-start").disabled = STATIC && !backendReady;
     if (d.notice) showNotice(d.notice);
     else hideNotice();
   } else {
@@ -187,8 +194,8 @@ const ACTIONS = {
   stop: () => ({ label: "Stop", run: () => scan.stop() }),
   phone: () => ({ label: "Use a phone instead", run: () => { selectSource("phone"); openSetup(true); } }),
   reload: () => ({ label: "Reload", primary: true, run: () => location.reload() }),
-  backend: () => ({ label: "Open local app", primary: true, run: () => { location.href = `${BACKEND}/#scan`; } }),
-  stay: () => ({ label: "Stay in Virtual Explore", run: () => { hideNotice(); $("tab-scan").focus(); } }),
+  backend: () => ({ label: "Try connection", primary: true, run: connectBackend }),
+  virtual: () => ({ label: "Back to Virtual Explore", run: () => setMode("virtual") }),
 };
 
 function showNotice(n) {
@@ -443,9 +450,8 @@ function renderFollow() {
 // ---- setup panel -----------------------------------------------------------------------------------------
 function wireSetup() {
   for (const tab of document.querySelectorAll(".mode-tab")) {
-    tab.addEventListener("click", () => (STATIC ? openBackend(tab) : setMode(tab.dataset.mode)));
+    tab.addEventListener("click", () => setMode(tab.dataset.mode));
     tab.addEventListener("keydown", (e) => {
-      if (STATIC) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         const next = mode === "virtual" ? "scan" : "virtual";
         setMode(next);
@@ -468,8 +474,6 @@ function wireSetup() {
   $("zoom-out-btn").addEventListener("click", () => { interruptIntro(); virtual && virtual.zoom(1.25); });
   $("replay-intro-btn").addEventListener("click", replayIntro);
 
-  if (STATIC) return;
-
   // camera sources
   for (const r of document.querySelectorAll('input[name="source"]')) r.addEventListener("change", () => selectSource(r.value));
   selectSource(prefs.source || "browser");
@@ -487,32 +491,43 @@ function wireSetup() {
   refreshCameras();
   navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener("devicechange", refreshCameras);
 
-  // phone link
-  const ph = info.phone;
-  if (ph.enabled) {
-    const sel = $("phone-addr");
-    sel.replaceChildren(...ph.urls.map((u, i) => new Option(new URL(u).host, String(i))));
-    $("phone-addr-field").hidden = ph.urls.length < 2;
-    const show = () => {
-      const i = Number(sel.value || 0);
-      $("phone-qr").src = `/api/phone-qr.png?i=${i}`;
-      $("phone-url").textContent = ph.urls[i];
-    };
-    sel.addEventListener("change", show);
-    show();
-    $("copy-phone-url").addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText($("phone-url").textContent);
-        toast("Link copied. Open it on the phone.");
-      } catch {
-        toast("Copy failed. Select the link text and copy it by hand.");
-      }
-    });
-  } else {
-    $("phone-link").hidden = true;
-    $("phone-error").hidden = false;
-    $("phone-error").textContent = ph.error || "The phone link is unavailable. Use a phone webcam app or a stream URL instead.";
+  // Phone addresses and credentials come from the running backend, never the static export.
+  $("phone-addr").addEventListener("change", showPhoneLink);
+  $("copy-phone-url").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("phone-url").textContent);
+      toast("Link copied. Open it on the phone.");
+    } catch {
+      toast("Copy failed. Select the link text and copy it by hand.");
+    }
+  });
+  configurePhone(STATIC ? null : info.phone);
+}
+
+function configurePhone(ph) {
+  phoneInfo = ph;
+  const enabled = !!(ph && ph.enabled && ph.urls && ph.urls.length);
+  $("phone-link").hidden = !enabled;
+  $("phone-error").hidden = enabled;
+  if (!enabled) {
+    $("phone-qr").removeAttribute("src");
+    $("phone-url").textContent = "";
+    $("phone-error").textContent = ph && ph.error || (STATIC && !backendReady
+      ? "Connect to the backend to get this computer's phone camera link."
+      : "The phone link is unavailable. Use a phone webcam app or a stream URL instead.");
+    return;
   }
+  const sel = $("phone-addr");
+  sel.replaceChildren(...ph.urls.map((u, i) => new Option(new URL(u).host, String(i))));
+  $("phone-addr-field").hidden = ph.urls.length < 2;
+  showPhoneLink();
+}
+
+function showPhoneLink() {
+  if (!phoneInfo || !phoneInfo.enabled) return;
+  const i = Number($("phone-addr").value || 0);
+  $("phone-qr").src = apiURL(`/api/phone-qr.png?i=${i}`);
+  $("phone-url").textContent = phoneInfo.urls[i];
 }
 
 function openSetup(open, save = true) {
@@ -547,7 +562,10 @@ function sourceLabel() {
   return "Camera";
 }
 
-function startSelectedSource() {
+async function startSelectedSource() {
+  if (mode !== "scan") return;
+  if (STATIC && !backendReady && !await connectBackend()) return;
+  if (mode !== "scan") return;
   const kind = selectedSource();
   if (kind === "browser") {
     scan.start("browser", { deviceId: $("device-select").value, res: $("res-select").value }).then(refreshCameras);
@@ -583,47 +601,87 @@ function removeSound() {
   $("key-mute").hidden = true;
 }
 
-// The static site is Virtual Explore. Scan Tapestry needs the Python backend, so its tab is a link to the local app,
-// A failed probe can also mean the browser blocks local-network requests, so keep a direct navigation action.
-const BACKEND_POLL_MS = 5000;
-let backendUp = false;
-
+// The static page keeps Virtual Explore's exported video and connects Scan to the local renderer on demand.
+// Asking only when Scan is selected also makes any local-network permission prompt follow a user action.
 function makeStatic() {
   document.documentElement.classList.add("static");
-  document.querySelector('.setup-mode[data-for="scan"]').hidden = true;
-  $("about-view").textContent = "The animation was rendered by the tapestry engine and is laid onto a virtual board, with the four tracking markers where they sit on the real one. Scan Tapestry, the camera-tracked version, needs the project’s backend running on this computer.";
+  $("about-view").textContent = "The animation was rendered by the tapestry engine and is laid onto a virtual board, with the four tracking markers where they sit on the real one. For Scan Tapestry, start server.py on this computer and select the Scan tab. The camera view stays on this page.";
   const tab = $("tab-scan");
-  tab.tabIndex = 0;
   const note = document.createElement("span");
   note.className = "tab-note";
   tab.append(note);
   setBackend(false);
-  const poll = async () => {
-    if (!document.hidden) setBackend(await pingBackend());
-    setTimeout(poll, BACKEND_POLL_MS);
-  };
-  poll();
-  document.addEventListener("visibilitychange", async () => { if (!document.hidden) setBackend(await pingBackend()); });
 }
 
 function setBackend(up) {
-  backendUp = up;
   const tab = $("tab-scan");
   tab.dataset.available = String(up);
-  tab.querySelector(".tab-note").textContent = up ? "Local app ready" : "Local app unavailable";
-  tab.title = up ? "Open Scan Tapestry in the local app" : "Scan Tapestry needs the local app. Click for setup and an option to open it.";
+  tab.querySelector(".tab-note").textContent = up ? "Backend connected" : backendPending ? "Connecting" : "Start backend";
+  tab.title = up ? "Scan the tapestry on this page" : "Start server.py on this computer, then connect from this tab.";
 }
 
-function openBackend(tab) {
-  if (tab.dataset.mode !== "scan") return;
-  if (!backendUp) {
-    showNotice({ kicker: "Scan Tapestry", tone: "warn", title: "Open the local app to scan the tapestry",
-      text: "Start server.py on this computer, then open the local app. Your browser may block this page from checking whether it is running; you can still open it directly.",
-      actions: ["backend", "stay"] });
-    $("notice-actions").querySelector("button").focus();
-    return;
+function backendDescription() {
+  if (backendPending) {
+    return { pill: { tone: "busy", text: "Connecting to the renderer" },
+      notice: { kicker: "Scan Tapestry", title: "Connecting to the backend", text: "Allow local network access for this site if your browser asks." },
+      line: { tone: "busy", text: "Connecting to the backend on this computer." } };
   }
-  location.href = `${BACKEND}/#scan`;
+  return { notice: backendError, line: { tone: "bad", text: backendError ? backendError.title : "Start the backend to scan." } };
+}
+
+function sameShow(a, b) {
+  const signature = (show) => JSON.stringify({
+    end: show.end, hold: show.hold,
+    beats: show.beats && show.beats.map(({ id, start, duration, hold, silence }) => ({ id, start, duration, hold, silence })),
+    board: show.board && [show.board.drawing_mm, show.board.markers_mm, show.board.marker_mm, show.board.gap_mm, show.board.paper],
+  });
+  return !!(a && b && a.beats && b.beats && a.board && b.board) && signature(a) === signature(b);
+}
+
+function connectBackend() {
+  if (!STATIC) return Promise.resolve(true);
+  if (backendConnection) return backendConnection;
+  backendConnection = connectBackendOnce().finally(() => { backendConnection = null; });
+  return backendConnection;
+}
+
+async function connectBackendOnce() {
+  backendReady = false;
+  backendPending = true;
+  backendError = null;
+  setBackend(false);
+  if (mode === "scan") renderStatus();
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const live = await getJSON("/api/info", { signal: ctl.signal });
+    if (!sameShow(info, live)) {
+      const err = new Error("Restart server.py using the same beats and configuration as this published page, or update the page to match the backend.");
+      err.showMismatch = true;
+      throw err;
+    }
+    backendReady = true;
+    scan.info = live;
+    configurePhone(live.phone);
+    setBackend(true);
+    if (mode === "scan" && !scan.active) scan.activate();
+    return true;
+  } catch (err) {
+    backendReady = false;
+    configurePhone(null);
+    backendError = { kicker: "Scan Tapestry", tone: "warn",
+      title: err.showMismatch ? "The backend is running a different show" : "Connect to the backend to scan",
+      text: err.showMismatch ? err.message
+        : `Start .venv\\Scripts\\python.exe server.py on this computer, then choose Try connection. Keep this page open and allow local network access for this site if your browser asks. (${err.name === "AbortError" ? "Connection timed out" : err.message})`,
+      actions: ["backend", "virtual"] };
+    return false;
+  } finally {
+    clearTimeout(timer);
+    backendPending = false;
+    setBackend(backendReady);
+    pb.update();
+    if (mode === "scan") renderStatus();
+  }
 }
 
 // ---- keyboard ------------------------------------------------------------------------------------------
