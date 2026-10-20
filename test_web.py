@@ -1,5 +1,6 @@
 """Browser UI back end: python -m unittest test_web -v"""
 
+import argparse
 import http.client
 import io
 import json
@@ -204,7 +205,7 @@ class ServerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.engine = WebEngine()
-        cls.app = server.App(cls.engine, 0, 0)
+        cls.app = server.App(cls.engine, 0, 0, allowed_origins=["https://demo.example"])
         cls.desk = server.Server(("127.0.0.1", 0), cls.app)
         cls.port = cls.desk.server_address[1]
         threading.Thread(target=cls.desk.serve_forever, daemon=True).start()
@@ -214,6 +215,9 @@ class ServerTests(unittest.TestCase):
         cls.desk.shutdown()
         cls.desk.server_close()
         cls.engine.close()
+
+    def setUp(self):
+        self.engine.set_source("none")
 
     def request(self, method, path, body=None, headers=None, host=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
@@ -238,6 +242,76 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(json.loads(data), {"ok": True})
         self.assertEqual(res.getheader("Access-Control-Allow-Origin"), "*")
         self.assertEqual(self.request("GET", "/api/ping", host="evil.example")[0].status, 403)
+        res, data = self.request("GET", "/api/ping", headers={"Origin": "https://untrusted.example"})
+        self.assertEqual(res.status, 200)
+        self.assertEqual(res.getheader("Access-Control-Allow-Origin"), "*")
+
+    def test_hosted_origin_preflight_is_limited_to_the_api(self):
+        headers = {"Origin": "https://hismondon.github.io", "Access-Control-Request-Method": "POST",
+                   "Access-Control-Request-Headers": "content-type, x-tapestry",
+                   "Access-Control-Request-Private-Network": "true"}
+        for path in ("/api/source", "/api/scan"):
+            with self.subTest(path=path):
+                res, data = self.request("OPTIONS", path, headers=headers)
+                self.assertEqual((res.status, data), (204, b""))
+                self.assertEqual(res.getheader("Access-Control-Allow-Origin"), headers["Origin"])
+                self.assertIn("POST", res.getheader("Access-Control-Allow-Methods"))
+                self.assertIn("X-Tapestry", res.getheader("Access-Control-Allow-Headers"))
+                self.assertEqual(res.getheader("Access-Control-Allow-Private-Network"), "true")
+        self.assertEqual(self.engine.source_status()["kind"], "none", "preflight must not change the camera source")
+        res, data = self.request("OPTIONS", "/api/info", headers={"Origin": headers["Origin"],
+                                 "Access-Control-Request-Method": "GET"})
+        self.assertEqual(res.status, 204)
+        self.assertEqual(self.request("OPTIONS", "/api/info", headers=headers)[0].status, 403)
+        self.assertEqual(self.request("OPTIONS", "/api/source", headers={**headers,
+                         "Access-Control-Request-Headers": "x-unexpected"})[0].status, 403)
+        self.assertEqual(self.request("OPTIONS", "/api/source", headers={**headers,
+                         "Origin": "https://hismondon.github.io.evil.example"})[0].status, 403)
+        self.assertEqual(self.request("OPTIONS", "/api/source", headers={**headers,
+                         "Host": "evil.example"})[0].status, 403)
+
+    def test_hosted_origin_can_scan_and_read_tracking_metadata(self):
+        origin = "https://hismondon.github.io"
+        headers = {"Origin": origin, "X-Tapestry": "1", "Content-Type": "application/json"}
+        res, data = self.request("POST", "/api/source", json.dumps({"kind": "browser"}), headers)
+        self.assertEqual(res.status, 200)
+        self.assertEqual(res.getheader("Access-Control-Allow-Origin"), origin)
+        jpeg = encode(camera_view(self.engine))
+        res, data = self.request("POST", "/api/scan?t=3&source=browser", jpeg,
+                                 {**headers, "Content-Type": "image/jpeg"})
+        self.assertEqual(res.status, 200)
+        self.assertEqual(res.getheader("Access-Control-Allow-Origin"), origin)
+        self.assertEqual(res.getheader("Access-Control-Expose-Headers"), "X-Meta")
+        self.assertEqual(res.getheader("Vary"), "Origin")
+        self.assertTrue(json.loads(res.getheader("X-Meta"))["locked"])
+        self.assertEqual(decode(data).shape[:2], (self.engine.comp.oh, self.engine.comp.ow))
+
+    def test_cross_origin_requests_keep_host_and_mutation_guards(self):
+        for origin in ("https://untrusted.example", "https://hismondon.github.io.evil.example", "null"):
+            with self.subTest(origin=origin):
+                headers = {"Origin": origin, "X-Tapestry": "1", "Content-Type": "application/json"}
+                res, data = self.request("POST", "/api/source", json.dumps({"kind": "browser"}), headers)
+                self.assertEqual(res.status, 403)
+                self.assertIsNone(res.getheader("Access-Control-Allow-Origin"))
+                self.assertEqual(self.engine.source_status()["kind"], "none")
+                self.assertEqual(self.request("GET", "/api/info", headers={"Origin": origin})[0].status, 403)
+        self.assertEqual(self.request("POST", "/api/source", json.dumps({"kind": "browser"}),
+                         {"Origin": "https://hismondon.github.io"})[0].status, 403)
+        self.assertEqual(self.request("GET", "/api/info", headers={"Origin": "https://hismondon.github.io"},
+                         host="evil.example")[0].status, 403)
+        res, data = self.request("GET", "/api/info", headers={"Origin": "https://demo.example"})
+        self.assertEqual(res.status, 200)
+        self.assertEqual(res.getheader("Access-Control-Allow-Origin"), "https://demo.example")
+        self.assertEqual(self.request("POST", "/api/source", json.dumps({"kind": "browser"}),
+                         {"Origin": f"http://localhost:{self.port}", "X-Tapestry": "1"})[0].status, 200)
+
+    def test_allowed_ui_origins_require_an_exact_web_origin(self):
+        for value in ("*", "https://*", "null", "https://example.com/", "https://example.com/path",
+                      "https://example.com?key=value", "https://example.com#fragment",
+                      "https://user:password@example.com", "https://example.com:bad", "https://bad host"):
+            with self.subTest(origin=value), self.assertRaises(argparse.ArgumentTypeError):
+                server.ui_origin(value)
+        self.assertEqual(server.ui_origin("https://example.com:8443"), "https://example.com:8443")
 
     def test_info_audio_and_texture(self):
         res, data = self.request("GET", "/api/info")
@@ -296,18 +370,27 @@ class PhoneListenerTests(unittest.TestCase):
             client.check_hostname = False
             client.verify_mode = ssl.CERT_NONE
 
-            def get(path, method="GET", body=None):
+            def get(path, method="GET", body=None, headers=None):
                 conn = http.client.HTTPSConnection("127.0.0.1", srv.server_address[1], context=client, timeout=10)
-                conn.request(method, path, body=body)
+                conn.request(method, path, body=body, headers=headers or {})
                 res = conn.getresponse()
                 data = res.read()
                 conn.close()
+                self.assertIsNone(res.getheader("Access-Control-Allow-Origin"), "the phone listener must not expose desktop CORS")
                 return res.status, data
 
             self.assertEqual(get("/phone")[0], 200)
             self.assertEqual(get("/static/phone.js")[0], 200)
             self.assertEqual(get("/api/info")[0], 404)
             self.assertEqual(get("/static/js/main.js")[0], 404)
+            headers = {"Origin": "https://hismondon.github.io", "Access-Control-Request-Method": "POST",
+                       "Access-Control-Request-Headers": "content-type, x-tapestry"}
+            self.assertEqual(get("/api/source", "OPTIONS", headers=headers)[0], 404)
+            self.assertEqual(get("/api/source", "POST", b'{"kind":"browser"}',
+                                 {"Origin": headers["Origin"], "X-Tapestry": "1"})[0], 404)
+            self.assertEqual(get("/api/info", headers={"Origin": headers["Origin"]})[0], 404)
+            self.assertEqual(get(f"/api/phone/status?k={app.token}", "OPTIONS", headers=headers)[0], 404)
+            self.assertIsNone(engine.phone.ping, "preflight must not touch the phone relay")
             self.assertEqual(get("/api/phone/status?k=bad")[0], 403)
             status, data = get(f"/api/phone/status?k={app.token}")
             self.assertEqual((status, json.loads(data)), (200, {"active": False}))

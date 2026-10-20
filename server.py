@@ -2,7 +2,8 @@
 
     .venv\\Scripts\\python.exe server.py            # then open http://localhost:8000
 
-The desktop UI is served on http://localhost only (a secure context, so the browser may use the webcam). A
+The desktop UI and API are served on http://localhost only. The hosted GitHub Pages UI may also use the API
+after the browser grants local-network access. Additional trusted UI origins can be added with --allow-origin. A
 second HTTPS listener on the local network serves just the phone camera page and its upload endpoint, behind a
 per-run pairing key carried in the QR code. Its certificate is self-signed and generated on first run.
 """
@@ -35,6 +36,35 @@ MAX_UPLOAD = 16 * 1024 * 1024
 PHONE_FILES = {"/phone": "phone.html", "/static/phone.js": "js/phone.js", "/static/phone.css": "phone.css",
                "/static/favicon.svg": "favicon.svg"}
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
+DEFAULT_ALLOWED_ORIGINS = frozenset({"https://hismondon.github.io"})
+CORS_METHODS = {
+    "/api/ping": {"GET", "HEAD"},
+    "/api/info": {"GET", "HEAD"},
+    "/api/camera-path": {"GET", "HEAD"},
+    "/api/audio.wav": {"GET", "HEAD"},
+    "/api/desk.jpg": {"GET", "HEAD"},
+    "/api/virtual": {"GET", "HEAD"},
+    "/api/source": {"GET", "HEAD", "POST"},
+    "/api/phone-qr.png": {"GET", "HEAD"},
+    "/api/scan": {"POST"},
+}
+CORS_HEADERS = {"content-type", "x-tapestry"}
+
+
+def ui_origin(value):
+    """Accept an exact web origin, never a URL path or wildcard."""
+    try:
+        url = urlsplit(value)
+        valid = (url.scheme in {"http", "https"} and url.hostname and url.username is None
+                 and url.password is None and not url.path and not url.query and not url.fragment
+                 and "*" not in url.netloc and "\\" not in url.netloc and not any(c.isspace() for c in value)
+                 and value == f"{url.scheme}://{url.netloc}")
+        url.port  # Reject malformed ports before starting the renderer.
+    except ValueError:
+        valid = False
+    if not valid:
+        raise argparse.ArgumentTypeError("Use an exact origin such as https://example.com (no path or wildcard)")
+    return value
 
 
 def lan_addresses():
@@ -120,11 +150,12 @@ def qr_png(text, scale=8):
 class App:
     """State shared by both listeners."""
 
-    def __init__(self, engine, port, phone_port, verbose=False):
+    def __init__(self, engine, port, phone_port, verbose=False, allowed_origins=()):
         self.engine = engine
         self.port = port
         self.phone_port = phone_port
         self.verbose = verbose
+        self.allowed_origins = DEFAULT_ALLOWED_ORIGINS | frozenset(ui_origin(o) for o in allowed_origins)
         self.token = secrets.token_urlsafe(9)
         self.phone_urls = []
         self.phone_error = None
@@ -153,7 +184,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
-        for k, v in (headers or {}).items():
+        if self.close_connection:
+            self.send_header("Connection", "close")
+        extra = {}
+        if getattr(self, "cors_origin", None):
+            extra = {"Access-Control-Allow-Origin": self.cors_origin, "Access-Control-Expose-Headers": "X-Meta",
+                     "Vary": "Origin"}
+        extra.update(headers or {})
+        for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
@@ -163,6 +201,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send(status, json.dumps(obj).encode("utf-8"))
 
     def error(self, status, message):
+        # Discard a bounded rejected upload before closing, so TLS can deliver the error without a reset.
+        if self.headers.get("Content-Length") not in (None, "0") and not getattr(self, "body_read", False):
+            self.close_connection = True
+            try:
+                self.connection.settimeout(2)
+                self.body()
+            except (ValueError, OSError):
+                pass
         self.json({"error": message}, status)
 
     def image(self, data, meta, ctype="image/jpeg"):
@@ -182,6 +228,9 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         if n > MAX_UPLOAD:
             raise ValueError("Upload is too large")
+        if n < 0:
+            raise ValueError("Invalid upload size")
+        self.body_read = True
         return self.rfile.read(n) if n else b""
 
     # ---- routing -----------------------------------------------------------------------------------------
@@ -194,7 +243,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.route("POST")
 
+    def do_OPTIONS(self):
+        self.route("OPTIONS")
+
+    def trusted_origin(self, origin):
+        scheme = "https" if self.server.tls else "http"
+        return origin in self.app.allowed_origins or origin == f"{scheme}://{self.headers.get('Host', '')}"
+
     def route(self, method):
+        self.cors_origin = None
+        self.body_read = False
         url = urlsplit(self.path)
         q = {k: v[-1] for k, v in parse_qs(url.query).items()}
         try:
@@ -203,6 +261,15 @@ class Handler(BaseHTTPRequestHandler):
             host = (self.headers.get("Host") or "").rsplit(":", 1)[0].lower()
             if host not in LOCAL_HOSTS:
                 return self.error(HTTPStatus.FORBIDDEN, "Open the UI at http://localhost")
+            if url.path.startswith("/api/") and not url.path.startswith("/api/phone/"):
+                origin = self.headers.get("Origin")
+                if origin and self.trusted_origin(origin):
+                    self.cors_origin = origin
+                elif origin and not (url.path == "/api/ping" and method in {"GET", "HEAD"}):
+                    self.close_connection = True
+                    return self.error(HTTPStatus.FORBIDDEN, "This web origin is not allowed to use the local backend")
+                if method == "OPTIONS":
+                    return self.preflight(url.path)
             if method == "POST" and url.path.startswith("/api/") and not url.path.startswith("/api/phone/") \
                     and self.headers.get("X-Tapestry") != "1":
                 return self.error(HTTPStatus.FORBIDDEN, "Missing X-Tapestry header")
@@ -211,6 +278,23 @@ class Handler(BaseHTTPRequestHandler):
             self.error(HTTPStatus.BAD_REQUEST, str(e))
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
+
+    def preflight(self, path):
+        if not self.cors_origin:
+            return self.error(HTTPStatus.FORBIDDEN, "A trusted Origin is required")
+        methods = CORS_METHODS.get(path)
+        if methods is None:
+            return self.error(HTTPStatus.NOT_FOUND, "Not found")
+        requested = self.headers.get("Access-Control-Request-Method", "")
+        headers = {h.strip().lower() for h in self.headers.get("Access-Control-Request-Headers", "").split(",") if h.strip()}
+        if requested not in methods or not headers <= CORS_HEADERS:
+            return self.error(HTTPStatus.FORBIDDEN, "This API method or request header is not allowed")
+        extra = {"Access-Control-Allow-Methods": ", ".join(sorted(methods)),
+                 "Access-Control-Allow-Headers": "Content-Type, X-Tapestry", "Access-Control-Max-Age": "600"}
+        # Older browsers use a PNA preflight; newer Chrome versions show a local-network permission prompt.
+        if self.headers.get("Access-Control-Request-Private-Network") == "true":
+            extra["Access-Control-Allow-Private-Network"] = "true"
+        return self.send(HTTPStatus.NO_CONTENT, headers=extra)
 
     def phone_route(self, method, path, q):
         if path == "/" and method == "GET":
@@ -231,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
             if not data:
                 raise ValueError("Empty frame")
             return self.json({"active": phone.push(data, device)})
-        if path == "/api/phone/status":
+        if path == "/api/phone/status" and method in {"GET", "HEAD"}:
             return self.json({"active": phone.touch(device)})
         self.error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -347,6 +431,8 @@ def main():
     ap.add_argument("--port", type=int, default=8000, help="desktop UI port on localhost (default 8000)")
     ap.add_argument("--phone-port", type=int, default=8443, help="HTTPS port for the phone camera page (default 8443)")
     ap.add_argument("--no-phone", action="store_true", help="do not open the phone camera listener on the network")
+    ap.add_argument("--allow-origin", action="append", default=[], type=ui_origin,
+                    help="also trust this exact hosted UI origin; repeat for multiple origins")
     ap.add_argument("--beats", default=None)
     ap.add_argument("--config", default=str(CONFIG))
     ap.add_argument("--quality", default="live", choices=["live", "render"], help="renderer preset (render is sharper but slower)")
@@ -357,7 +443,7 @@ def main():
     from web_engine import WebEngine
     print("Loading the show...", flush=True)
     engine = WebEngine(args.beats, args.config, args.quality)
-    app = App(engine, args.port, args.phone_port, args.verbose)
+    app = App(engine, args.port, args.phone_port, args.verbose, args.allow_origin)
     try:
         desktop = Server(("127.0.0.1", args.port), app)
     except OSError as e:

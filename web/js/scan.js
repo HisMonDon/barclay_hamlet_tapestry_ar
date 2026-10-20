@@ -4,7 +4,7 @@
 //   browser  this computer's webcam through getUserMedia; frames are uploaded with each request
 //   phone    the phone page posts frames to the server; we ask for renders of the latest one
 //   stream   the server opens a stream URL (or an OpenCV camera number) with app.py's ResilientCamera
-import { postJSON } from "./net.js";
+import { apiFetch, postJSON } from "./net.js";
 
 const MAX_IN_FLIGHT = 2;
 const IDLE_POLL_MS = 400;
@@ -135,7 +135,7 @@ export class ScanStage {
     if (!md || !md.getUserMedia) {
       throw cameraError("unavailable", window.isSecureContext
         ? "This browser cannot use cameras. Try Chrome, Edge or Firefox."
-        : "Cameras only work on a secure page. Open the UI at http://localhost:" + location.port + " on this computer.");
+        : "Cameras only work on a secure page. Open this site over HTTPS or use the local app at http://localhost:8000.");
     }
     const [w, h] = (opts.res || "1280x720").split("x").map(Number);
     const video = { width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30 } };
@@ -208,7 +208,7 @@ export class ScanStage {
       const body = kind === "browser" ? await this.grab() : null;
       if (token !== this.token || (kind === "browser" && !body)) return;
       const q = `t=${t.toFixed(4)}&follow=${this.follow ? 1 : 0}&overlay=${this.overlay ? 1 : 0}&source=${kind === "browser" ? "browser" : "server"}`;
-      const res = await fetch(`/api/scan?${q}`, {
+      const res = await apiFetch(`/api/scan?${q}`, {
         method: "POST", body, cache: "no-store",
         headers: { "X-Tapestry": "1", "Content-Type": body ? "image/jpeg" : "application/octet-stream" },
       });
