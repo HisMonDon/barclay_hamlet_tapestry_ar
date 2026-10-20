@@ -43,6 +43,24 @@
           aria-label="3D view of the tapestry on the desk. Drag to orbit, right-drag or two fingers to pan, scroll or pinch to zoom. Arrow keys orbit, plus and minus zoom."></canvas>
         <canvas id="scan-canvas" class="layer scan-layer" hidden role="img" aria-label="Camera view with the animation aligned to the tapestry"></canvas>
 
+        <div class="intro" id="intro" hidden>
+          <div class="intro-veil" aria-hidden="true"></div>
+          <div class="intro-scrim" aria-hidden="true"></div>
+          <div class="intro-bar top" aria-hidden="true"></div>
+          <div class="intro-bar bottom" aria-hidden="true"></div>
+          <div class="intro-card" role="group" aria-label="Title">
+            <h2 class="intro-name">Hamlet’s Tapestry</h2>
+            <p class="intro-sub" id="intro-sub">The Serpent Beneath</p>
+            <span class="intro-rule" aria-hidden="true"></span>
+            <p class="intro-course">Ms. Barclay Media Assignment</p>
+            <p class="intro-credit">Made by Chenyu Lu and Eric Yao</p>
+          </div>
+          <button class="chip intro-skip" id="intro-skip" title="Skip the opening (Esc)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6v12l8-6-8-6ZM13 6v12l8-6-8-6Z" fill="currentColor"/></svg>
+            <span>Skip intro</span>
+          </button>
+        </div>
+
         <div class="view-tools" id="view-tools">
           <button class="chip" id="follow-btn" aria-pressed="false" title="Follow the animation's camera (F)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -145,10 +163,12 @@
             <span class="switch-label">Follow animation<small>Ride along with the show’s own camera as it follows the Serpent.</small></span>
           </label>
           <button class="btn" id="reset-view-btn-2">Reset view</button>
+          <button class="btn" id="replay-intro-btn">Replay intro</button>
         </section>
         <section class="panel">
           <h2 class="panel-title">About this view</h2>
           <p class="hint" id="about-view">The animation is rendered live by the tapestry engine and laid onto a virtual board, with the four tracking markers where they sit on the real one. No camera is used.</p>
+          <p class="credit">Ms. Barclay Media Assignment<br>Made by Chenyu Lu and Eric Yao</p>
         </section>
       </div>
 
@@ -255,6 +275,7 @@
           <div id="key-mute"><dt><kbd>M</kbd></dt><dd>Mute</dd></div>
           <div><dt><kbd>Shift</kbd>+<kbd>F</kbd></dt><dd>Fullscreen</dd></div>
           <div><dt><kbd>F</kbd></dt><dd>Follow animation</dd></div>
+          <div><dt><kbd>Esc</kbd></dt><dd>Skip the intro</dd></div>
         </dl>
       </section>
     </aside>

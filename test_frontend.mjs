@@ -171,6 +171,50 @@ test("Follow's final hold and Reset frame the entire board and desk spill", asyn
   }
 });
 
+test("the opening walks up to the desk, looks down at the board and hands over to Follow", async () => {
+  const threeSource = readFileSync(new URL("./web/vendor/three/three.module.min.js", import.meta.url), "utf8");
+  const THREE = await import(`data:text/javascript;base64,${Buffer.from(threeSource).toString("base64")}`);
+  const VirtualStage = virtualClass({ THREE });
+  const board = {
+    drawing_mm: [279.4, 431.8], board_mm: [-80, -80, 359.4, 511.8],
+    texture_mm: [-86, -86, 365.4, 581.8], desk_mm: [-610.3, -259.1, 889.7, 690.9],
+  };
+  const stage = new VirtualStage({
+    canvas: {}, playback: {}, onStatus() {}, onFollowChange() {},
+    info: { board, output: [1920, 1080], hold: 71, beats: [{ start: 67 }, { start: 71 }] },
+  });
+  stage.path = { rate: 1, poses: [[0.49606, 0.50154, 2.75122, 0, 0]] };
+  stage.camera = new THREE.PerspectiveCamera(38, 16 / 9, 0.01, 30);
+  stage.controls = { enabled: true, target: new THREE.Vector3(), update() {} };
+  stage.ready = true;
+  const phases = [];
+  stage.onIntro = (phase, opts) => phases.push(opts ? `${phase}:${opts.play}` : phase);
+
+  assert.equal(stage.startIntro(), true);
+  assert.equal(stage.controls.enabled, false);
+  const centre = stage.world(...stage.centre, 0);
+  const far = stage.camera.position.distanceTo(centre);
+  stage.runIntro(1000);
+  assert.deepEqual(phases, [], "the walk waits for the first board frame");
+  stage.hasFrame = true;
+  stage.runIntro(1000);
+  assert.ok(far > 2.4 && Math.abs(stage.camera.position.y - 0.86) < 0.03, "starts at standing eye height across the room");
+
+  stage.runIntro(1000 + 8000);
+  assert.ok(stage.camera.position.distanceTo(centre) < 1.1, "ends close above the desk");
+  stage.camera.updateMatrixWorld(true);
+  const onScreen = centre.clone().project(stage.camera);
+  assert.ok(Math.abs(onScreen.x) < 0.05 && Math.abs(onScreen.y) < 0.05, "looking down at the middle of the board");
+  assert.deepEqual(phases, ["walk", "title"]);
+
+  stage.runIntro(1000 + 12000);
+  assert.equal(stage.introActive, false);
+  assert.equal(stage.follow, true);
+  assert.equal(stage.controls.enabled, true);
+  assert.deepEqual(phases, ["walk", "title", "out", "done:true"]);
+  assert.equal(stage.endIntro(), false, "ending twice is a no-op");
+});
+
 test("a blocked local-app probe still offers direct navigation and a way to stay", () => {
   const source = readFileSync(new URL("./web/js/main.js", import.meta.url), "utf8")
     .replace(/^import .*;\r?\n/gm, "")

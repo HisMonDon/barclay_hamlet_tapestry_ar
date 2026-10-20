@@ -7,8 +7,18 @@ const BOARD_THICK = 0.006;
 const FOLLOW_TILT = THREE.MathUtils.degToRad(12);
 const OVERVIEW = { polar: THREE.MathUtils.degToRad(36), azimuth: 0, fill: 0.86 };
 const BLEND_S = 0.9;
+const DESK_HEIGHT = 0.74;
+
+// The opening: walk up to the desk at standing eye height, look down at the board, hold on the title, then
+// settle into the show's camera. Seconds from the first board frame; `reduced` keeps the camera still.
+const INTRO = {
+  walk: 5.2, look: [3.7, 6.3], lean: [4.4, 7.0], title: 6.0, out: 10.6, end: 11.1, blend: 1.6,
+  eye: 0.86, start: 2.2, arrive: 0.27, stepHz: 1.7, gaze: THREE.MathUtils.degToRad(21), leanTilt: THREE.MathUtils.degToRad(22),
+};
+const INTRO_REDUCED = { title: 0.8, out: 5.4, end: 5.9 };
 
 const smooth = (p) => p * p * (3 - 2 * p);
+const clamp01 = (p) => Math.min(1, Math.max(0, p));
 
 export class VirtualStage {
   constructor({ canvas, info, playback, onStatus, onFollowChange }) {
@@ -32,6 +42,8 @@ export class VirtualStage {
     this.pendingClose = [];
     this.fallback = null;
     this.touched = false;
+    this.intro = null;
+    this.onIntro = () => {};
 
     const b = info.board;
     this.b = b;
@@ -110,7 +122,7 @@ export class VirtualStage {
         throw new Error("Invalid camera path");
       }
       this.path = p;
-      if (!this.touched) this.setFollow(true);
+      if (!this.touched && !this.intro) this.setFollow(true);
     }).catch(() => {
       this.onStatus({ tone: "warn", text: "The show's camera path could not be loaded; Follow animation is unavailable." });
     });
@@ -151,12 +163,40 @@ export class VirtualStage {
     this.scene.add(desk);
     this.deskMat = mat;
 
-    // the desk's front edge, so the tabletop reads as a solid slab
+    // The tabletop as a solid slab on legs, standing on a dark floor, so the walk-up in the opening reads as a
+    // table in a room. The slab's shadow pass draws its underside, well clear of the textured top.
+    const W = (dx1 - dx0) / 1000, D = (dy1 - dy0) / 1000;
     const depth = 0.04;
-    const edge = new THREE.Mesh(new THREE.BoxGeometry((dx1 - dx0) / 1000, depth, 0.004),
-      new THREE.MeshStandardMaterial({ color: 0x24170e, roughness: 0.7 }));
-    edge.position.copy(this.world((dx0 + dx1) / 2, dy1, -depth / 2)).add(new THREE.Vector3(0, 0, 0.002));
-    this.scene.add(edge);
+    const wood = new THREE.MeshStandardMaterial({ color: 0x24170e, roughness: 0.7 });
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(W, depth, D), wood);
+    slab.position.copy(this.world((dx0 + dx1) / 2, (dy0 + dy1) / 2, -depth / 2 - 0.0005));
+    slab.castShadow = true;
+    this.scene.add(slab);
+
+    const legH = DESK_HEIGHT - depth;
+    const inset = 0.07;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.055, legH, 0.055), wood);
+        leg.position.copy(this.world((dx0 + dx1) / 2, (dy0 + dy1) / 2, -depth - legH / 2))
+          .add(new THREE.Vector3(sx * (W / 2 - inset), 0, sz * (D / 2 - inset)));
+        leg.receiveShadow = true;
+        this.scene.add(leg);
+      }
+    }
+    for (const [w, d, x, z] of [[W - 2 * inset, 0.02, 0, D / 2 - inset], [W - 2 * inset, 0.02, 0, -(D / 2 - inset)],
+      [0.02, D - 2 * inset, W / 2 - inset, 0], [0.02, D - 2 * inset, -(W / 2 - inset), 0]]) {
+      const apron = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), wood);
+      apron.position.copy(this.world((dx0 + dx1) / 2, (dy0 + dy1) / 2, -depth - 0.04)).add(new THREE.Vector3(x, 0, z));
+      apron.receiveShadow = true;
+      this.scene.add(apron);
+    }
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), new THREE.MeshStandardMaterial({ color: 0x1a120c, roughness: 0.92 }));
+    floor.rotateX(-Math.PI / 2);
+    floor.position.copy(this.world(...this.centre, -DESK_HEIGHT));
+    floor.receiveShadow = true;
+    this.scene.add(floor);
   }
 
   // A horizontal rectangle (mm) at height h, its UVs cut from the board texture's rectangle when uvRect is set.
@@ -456,7 +496,7 @@ export class VirtualStage {
     return this.camera.position.clone().addScaledVector(dir, s);
   }
 
-  setFollow(on, silent = false) {
+  setFollow(on, silent = false, blendS = BLEND_S) {
     if (!this.ready || this.fallback) return;
     if (on && !this.path) {
       this.onStatus({ tone: "warn", text: "The show's camera path is still loading." });
@@ -464,7 +504,8 @@ export class VirtualStage {
     }
     if (on === this.follow) return;
     this.follow = on;
-    this.blend = { t: performance.now(), from: { position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone() } };
+    this.blend = { t: performance.now(), dur: blendS * 1000,
+      from: { position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone() } };
     if (!on) {
       this.blend = null;
       this.controls.target.copy(this.lookPoint());
@@ -515,6 +556,7 @@ export class VirtualStage {
   }
 
   onKey(e) {
+    if (this.intro) return;
     const step = THREE.MathUtils.degToRad(e.shiftKey ? 15 : 5);
     const map = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     if (map[e.key]) {
@@ -541,13 +583,106 @@ export class VirtualStage {
     t.y = THREE.MathUtils.clamp(t.y, 0, 0.3);
   }
 
+  // ---- opening ------------------------------------------------------------------------------------------
+  // The walk-up starts with the first board frame; until then the camera waits at the far end of the room.
+  startIntro() {
+    if (!this.ready || this.fallback) return false;
+    const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (this.follow) this.setFollow(false, true);
+    this.blend = null;
+    this.flight = null;
+    this.touched = false;
+    this.controls.enabled = false;
+    this.intro = { t0: null, plan: this.introPlan(), times: reduced ? INTRO_REDUCED : INTRO, reduced, phase: null };
+    this.setPose(this.introPose(0));
+    return true;
+  }
+
+  get introActive() {
+    return !!this.intro;
+  }
+
+  // Ends the opening early or on time and hands over to the show's camera; `play` tells the page to start the show.
+  endIntro({ play = true } = {}) {
+    if (!this.intro) return false;
+    this.intro = null;
+    this.controls.enabled = true;
+    if (this.path) {
+      this.setFollow(true, true, INTRO.blend);
+    } else {
+      // Without the camera path yet, keep the current view direction and drift to the overview.
+      const dir = new THREE.Vector3();
+      this.camera.getWorldDirection(dir);
+      this.controls.target.copy(this.camera.position).addScaledVector(dir, 0.8);
+      this.flight = { t: performance.now(), dur: 1400, fromPos: this.camera.position.clone(), fromTarget: this.controls.target.clone(), to: this.overviewPose() };
+    }
+    this.onIntro("done", { play });
+    return true;
+  }
+
+  introPlan() {
+    const [, , , dy1] = this.b.desk_mm;
+    const edge = this.world(this.centre[0], dy1).z;
+    const fit = this.fitRectangle(this.b.board_mm, INTRO.leanTilt, 1);
+    const d = Math.min(fit.d, 1.05);
+    return {
+      from: new THREE.Vector3(0.09, INTRO.eye + 0.012, edge + INTRO.start),
+      arrive: new THREE.Vector3(0, INTRO.eye, edge + INTRO.arrive),
+      lean: { target: fit.target, position: fit.target.clone().add(new THREE.Vector3(0, Math.cos(INTRO.leanTilt), Math.sin(INTRO.leanTilt)).multiplyScalar(d)) },
+    };
+  }
+
+  // Camera at e seconds into the opening: an easing walk with head-bob that slows to a stop at the desk edge,
+  // the gaze dropping from across the desk to the board, a lean over it, then a slow breath while the title holds.
+  introPose(e) {
+    const P = this.intro.plan;
+    if (this.intro.reduced) return { position: P.lean.position.clone(), target: P.lean.target.clone(), roll: 0 };
+    const s = clamp01(e / INTRO.walk);
+    const position = P.from.clone().lerp(P.arrive, 1 - (1 - s) ** 2);
+    const pace = 1 - s;
+    const step = e * Math.PI * 2 * INTRO.stepHz;
+    position.y += 0.009 * Math.sin(step) * pace;
+    position.x += 0.013 * Math.sin(step / 2) * pace;
+    const lean = smooth(clamp01((e - INTRO.lean[0]) / (INTRO.lean[1] - INTRO.lean[0])));
+    position.lerp(P.lean.position, lean);
+    position.lerp(P.lean.target, 0.06 * smooth(clamp01((e - INTRO.lean[1]) / 5)));
+    // While walking, the eyes rest on the table at a steady downward angle, aimed past the far side of the board.
+    const far = P.lean.target.z - 0.6;
+    const ahead = new THREE.Vector3(P.lean.target.x - 0.02, position.y - Math.tan(INTRO.gaze) * (position.z - far), far);
+    const look = smooth(clamp01((e - INTRO.look[0]) / (INTRO.look[1] - INTRO.look[0])));
+    const target = ahead.lerp(P.lean.target, look);
+    return { position, target, roll: 0.007 * Math.sin(step / 2) * pace };
+  }
+
+  runIntro(now) {
+    const I = this.intro;
+    if (I.t0 === null && this.hasFrame) I.t0 = now;
+    const e = I.t0 === null ? 0 : (now - I.t0) / 1000;
+    if (I.t0 !== null) {
+      const phase = e >= I.times.out ? "out" : e >= I.times.title ? "title" : "walk";
+      if (phase !== I.phase) {
+        I.phase = phase;
+        this.onIntro(phase);
+      }
+      if (e >= I.times.end) {
+        this.endIntro();
+        return;
+      }
+    }
+    this.setPose(this.introPose(e));
+  }
+
   updateCamera(t) {
     const now = performance.now();
+    if (this.intro) {
+      this.runIntro(now);
+      if (this.intro) return;
+    }
     if (this.follow && this.path) {
       const want = this.followPose(t);
       this.setPose(want);
       if (this.blend) {
-        const p = Math.min(1, (now - this.blend.t) / (BLEND_S * 1000));
+        const p = Math.min(1, (now - this.blend.t) / this.blend.dur);
         if (p < 1) {
           const q = smooth(p);
           const pos = this.blend.from.position.clone().lerp(want.position, q);
@@ -689,6 +824,7 @@ export class VirtualStage {
   }
 
   deactivate() {
+    this.endIntro({ play: false });
     this.active = false;
     cancelAnimationFrame(this.raf);
     if (this.abort) this.abort.abort();

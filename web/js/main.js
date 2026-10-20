@@ -15,6 +15,7 @@ let resumeAfterDrag = false;
 let lastSecond = -1;
 let toastTimer = 0;
 let idleTimer = 0;
+let introTimer = 0;
 
 boot().catch((err) => {
   hideLoading();
@@ -35,7 +36,7 @@ async function boot() {
   }
   document.title = `${info.title.split(":")[0]} — Virtual Explore`;
   const sub = info.title.split(":")[1];
-  if (sub) $("show-title").textContent = sub.trim();
+  if (sub) $("show-title").textContent = $("intro-sub").textContent = sub.trim();
   $("gap-mm").textContent = info.board.gap_mm;
   $("min-markers").textContent = info.min_markers;
   if (STATIC) makeStatic();
@@ -72,6 +73,7 @@ async function boot() {
       onFollowChange: (on) => { renderFollow(); if (!on) toast("Follow animation is off. Press F or the button to turn it back on."); },
     });
     virtual.onFirstFrame = () => { hideLoading(); renderStatus(); };
+    virtual.onIntro = renderIntro;
     await virtual.init();
   } catch (err) {
     if (virtual) virtual.deactivate();
@@ -79,7 +81,9 @@ async function boot() {
     virtualError = { kicker: "Virtual Explore", tone: "bad", title: "The view could not be loaded", text: err.message, actions: ["reload"] };
   }
   pb.setGate(() => (virtual ? virtual.gateReason() : "The view is unavailable"));
+  const toScan = location.hash === "#scan" && !STATIC;
   if (virtual) {
+    if (!toScan) startIntro();
     virtual.activate();
     if (!virtual.hasFrame) showLoading("Laying out the board");
   } else {
@@ -87,7 +91,7 @@ async function boot() {
   }
   renderFollow();
   renderStatus();
-  if (location.hash === "#scan" && !STATIC) setMode("scan");
+  if (toScan) setMode("scan");
   requestAnimationFrame(tick);
   window.addEventListener("pagehide", () => {
     if (scan.kind && !STATIC) fetch("/api/source", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", "X-Tapestry": "1" }, body: '{"kind":"none"}' });
@@ -230,6 +234,51 @@ function toast(text, ms = 3500) {
   toastTimer = setTimeout(() => (el.hidden = true), ms);
 }
 
+// ---- opening --------------------------------------------------------------------------------------------
+// Virtual Explore opens on a walk up to the desk and a title card, then the show starts. Play, Skip and Esc
+// cut to the show; scrubbing, stepping and the view controls end the opening without starting playback.
+function startIntro() {
+  if (!virtual || !virtual.startIntro()) return;
+  renderIntro("wait");
+  renderFollow();
+}
+
+function replayIntro() {
+  if (mode !== "virtual" || !virtual) return;
+  pb.pause();
+  pb.seek(0);
+  startIntro();
+}
+
+function introOn() {
+  return !!(virtual && virtual.introActive);
+}
+
+function skipIntro() {
+  return !!(virtual && virtual.endIntro({ play: true }));
+}
+
+function interruptIntro() {
+  if (virtual) virtual.endIntro({ play: false });
+}
+
+function renderIntro(phase, { play = false } = {}) {
+  const el = $("intro");
+  clearTimeout(introTimer);
+  el.hidden = false;
+  el.dataset.phase = phase;
+  document.documentElement.classList.toggle("intro-on", phase !== "done");
+  if (phase === "wait") {
+    // Commit the black frame before the walk starts, so a replay fades up from black too.
+    void el.offsetWidth;
+    wake();
+  } else if (phase === "done") {
+    introTimer = setTimeout(() => (el.hidden = true), 1300);
+    renderFollow();
+    if (play) pb.play();
+  }
+}
+
 // ---- transport ------------------------------------------------------------------------------------------
 function buildThread() {
   const track = $("thread-track");
@@ -260,16 +309,18 @@ function buildThread() {
 }
 
 function wireTransport() {
-  $("play-btn").addEventListener("click", () => pb.toggle());
-  $("restart-btn").addEventListener("click", () => pb.restart());
-  $("prev-btn").addEventListener("click", () => pb.step(-1));
-  $("next-btn").addEventListener("click", () => pb.step(+1));
+  $("play-btn").addEventListener("click", () => skipIntro() || pb.toggle());
+  $("restart-btn").addEventListener("click", () => { interruptIntro(); pb.restart(); });
+  $("prev-btn").addEventListener("click", () => { interruptIntro(); pb.step(-1); });
+  $("next-btn").addEventListener("click", () => { interruptIntro(); pb.step(+1); });
+  $("intro-skip").addEventListener("click", skipIntro);
   $("mute-btn").addEventListener("click", () => { pb.setMuted(!pb.muted); savePrefs({ muted: pb.muted }); });
   $("volume").addEventListener("input", (e) => { pb.setVolume(Number(e.target.value)); savePrefs({ volume: pb.volume, muted: pb.muted }); });
 
   const sc = $("scrubber");
   const begin = () => {
     if (dragging) return;
+    interruptIntro();
     dragging = true;
     $("thread").classList.add("dragging");
     resumeAfterDrag = pb.wantPlay;
@@ -285,10 +336,11 @@ function wireTransport() {
   sc.addEventListener("pointerup", end);
   sc.addEventListener("pointercancel", end);
   sc.addEventListener("change", end);
-  sc.addEventListener("input", () => pb.seek(Number(sc.value)));
+  sc.addEventListener("input", () => { interruptIntro(); pb.seek(Number(sc.value)); });
   sc.addEventListener("keydown", (e) => {
     const jump = { ArrowLeft: -1, ArrowRight: 1, ArrowDown: -1, ArrowUp: 1 }[e.key];
     if (jump) {
+      interruptIntro();
       pb.seek(pb.time + jump * (e.shiftKey ? 5 : 1));
       e.preventDefault();
       e.stopPropagation();
@@ -369,6 +421,7 @@ function setFollow(on) {
     scan.setView({ follow: on });
     savePrefs({ scanFollow: on });
   } else if (virtual) {
+    interruptIntro();
     virtual.setFollow(on, true);
   }
   renderFollow();
@@ -381,7 +434,7 @@ function renderFollow() {
   $("follow-btn").disabled = unavailable;
   $("follow-switch").checked = !!(virtual && virtual.follow);
   $("follow-switch").disabled = !virtual || !!virtual.fallback;
-  for (const id of ["reset-view-btn", "reset-view-btn-2", "zoom-in-btn", "zoom-out-btn"]) $(id).disabled = !virtual || !!virtual.fallback;
+  for (const id of ["reset-view-btn", "reset-view-btn-2", "zoom-in-btn", "zoom-out-btn", "replay-intro-btn"]) $(id).disabled = !virtual || !!virtual.fallback;
   $("cine-switch").checked = scan.follow;
 }
 
@@ -405,12 +458,13 @@ function wireSetup() {
   openSetup(prefs.setupOpen ?? !narrow, false);
 
   $("follow-btn").addEventListener("click", () => setFollow(!currentFollow()));
-  $("follow-switch").addEventListener("change", (e) => { if (virtual) virtual.setFollow(e.target.checked, true); renderFollow(); });
+  $("follow-switch").addEventListener("change", (e) => { if (virtual) { interruptIntro(); virtual.setFollow(e.target.checked, true); } renderFollow(); });
   $("cine-switch").addEventListener("change", (e) => { scan.setView({ follow: e.target.checked }); savePrefs({ scanFollow: e.target.checked }); renderFollow(); });
   $("overlay-switch").addEventListener("change", (e) => scan.setView({ overlay: e.target.checked }));
-  for (const id of ["reset-view-btn", "reset-view-btn-2"]) $(id).addEventListener("click", () => virtual && virtual.resetView());
-  $("zoom-in-btn").addEventListener("click", () => virtual && virtual.zoom(0.8));
-  $("zoom-out-btn").addEventListener("click", () => virtual && virtual.zoom(1.25));
+  for (const id of ["reset-view-btn", "reset-view-btn-2"]) $(id).addEventListener("click", () => { interruptIntro(); virtual && virtual.resetView(); });
+  $("zoom-in-btn").addEventListener("click", () => { interruptIntro(); virtual && virtual.zoom(0.8); });
+  $("zoom-out-btn").addEventListener("click", () => { interruptIntro(); virtual && virtual.zoom(1.25); });
+  $("replay-intro-btn").addEventListener("click", replayIntro);
 
   if (STATIC) return;
 
@@ -582,17 +636,23 @@ function wireKeys() {
       case " ":
       case "k":
         if (onControl) return;
-        pb.toggle();
+        if (!skipIntro()) pb.toggle();
+        break;
+      case "Escape":
+        if (!skipIntro()) return;
         break;
       case "ArrowLeft":
         if (tag === "INPUT") return;
+        interruptIntro();
         pb.step(-1);
         break;
       case "ArrowRight":
         if (tag === "INPUT") return;
+        interruptIntro();
         pb.step(1);
         break;
       case "Home":
+        interruptIntro();
         pb.restart();
         break;
       case "m":
@@ -608,7 +668,10 @@ function wireKeys() {
         setFollow(!currentFollow());
         break;
       case "0":
-        if (mode === "virtual" && virtual) virtual.resetView();
+        if (mode === "virtual" && virtual) {
+          interruptIntro();
+          virtual.resetView();
+        }
         break;
       default:
         return;
@@ -628,6 +691,12 @@ function wireFullscreen() {
     wake();
   });
   for (const ev of ["pointermove", "pointerdown", "keydown"]) document.addEventListener(ev, wake, { passive: true });
+  // The show can start on its own after the opening, before the browser allows sound; resume at the first gesture.
+  for (const ev of ["pointerdown", "keydown"]) {
+    document.addEventListener(ev, () => {
+      if (pb && pb.wantPlay && pb.ctx && pb.ctx.state === "suspended") pb.ctx.resume().catch(() => {});
+    }, { passive: true });
+  }
 }
 
 function toggleFullscreen() {
@@ -650,7 +719,7 @@ function wake() {
   root.classList.remove("idle");
   clearTimeout(idleTimer);
   if (root.classList.contains("is-fullscreen")) {
-    idleTimer = setTimeout(() => { if (pb && pb.running) root.classList.add("idle"); }, 2600);
+    idleTimer = setTimeout(() => { if (pb && (pb.running || introOn())) root.classList.add("idle"); }, 2600);
   }
 }
 
