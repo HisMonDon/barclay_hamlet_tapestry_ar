@@ -207,7 +207,23 @@ test("the opening walks up to the desk, looks down at the board and hands over t
   assert.ok(Math.abs(onScreen.x) < 0.05 && Math.abs(onScreen.y) < 0.05, "looking down at the middle of the board");
   assert.deepEqual(phases, ["walk", "title"]);
 
-  stage.runIntro(1000 + 12000);
+  assert.equal(stage.continueIntro(1000 + 3000), false, "Continue only works once the title is up");
+  stage.runIntro(1000 + 60000);
+  assert.equal(stage.introActive, true, "the title waits for Continue");
+  assert.deepEqual(phases, ["walk", "title"]);
+  stage.camera.updateMatrixWorld(true);
+  const waiting = centre.clone().project(stage.camera);
+  assert.ok(Math.abs(waiting.x) < 0.1 && Math.abs(waiting.y) < 0.1, "still looking at the board while waiting");
+
+  assert.equal(stage.continueIntro(1000 + 60000), true);
+  assert.equal(stage.continueIntro(1000 + 60000), false);
+  stage.runIntro(1000 + 62500);
+  assert.deepEqual(phases, ["walk", "title", "out"]);
+  assert.equal(stage.introActive, true, "lingers on the tapestry after Continue");
+  stage.runIntro(1000 + 64990);
+  const opening = stage.followPose(0);
+  assert.ok(stage.camera.position.distanceTo(opening.position) < 0.1, "the linger ends just behind the show's opening camera");
+  stage.runIntro(1000 + 65100);
   assert.equal(stage.introActive, false);
   assert.equal(stage.follow, true);
   assert.equal(stage.controls.enabled, true);

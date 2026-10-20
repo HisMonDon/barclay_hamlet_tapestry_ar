@@ -240,6 +240,17 @@ b { color: var(--parchment); font-weight: 600; }
   font: italic clamp(15px, min(2.1cqw, 3.6cqh), 25px)/1.3 var(--display); color: var(--parchment);
 }
 
+.intro-card .intro-continue {
+  --delay: 2.4s; margin-top: 4.5cqh; padding: 8px 18px 8px 24px; pointer-events: auto; visibility: hidden;
+  font-size: clamp(14px, min(1.6cqw, 2.8cqh), 17px); letter-spacing: .04em; text-shadow: none;
+  box-shadow: 0 0 0 4px rgba(201, 162, 74, .14), 0 8px 24px rgba(0, 0, 0, .5);
+}
+.intro-continue svg { width: 18px; height: 18px; }
+.intro[data-phase="title"] .intro-continue {
+  visibility: visible;
+  transition: opacity 1s ease var(--delay), transform 1.4s var(--ease) var(--delay), visibility 0s linear var(--delay), background .15s;
+}
+
 .intro-skip {
   position: absolute; right: 16px; top: max(8px, calc((9cqh - 36px) / 2)); pointer-events: auto;
   opacity: .75; transition: opacity .3s ease, visibility .3s;
