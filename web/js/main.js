@@ -235,8 +235,9 @@ function toast(text, ms = 3500) {
 }
 
 // ---- opening --------------------------------------------------------------------------------------------
-// Virtual Explore opens on a walk up to the desk and a title card, then the show starts. Play, Skip and Esc
-// cut to the show; scrubbing, stepping and the view controls end the opening without starting playback.
+// Virtual Explore opens on a walk up to the desk and a title card that waits for Continue; the view then lingers
+// and the show starts. Play, Skip and Esc cut to the show; scrubbing, stepping and the view controls end the
+// opening without starting playback.
 function startIntro() {
   if (!virtual || !virtual.startIntro()) return;
   renderIntro("wait");
@@ -314,6 +315,7 @@ function wireTransport() {
   $("prev-btn").addEventListener("click", () => { interruptIntro(); pb.step(-1); });
   $("next-btn").addEventListener("click", () => { interruptIntro(); pb.step(+1); });
   $("intro-skip").addEventListener("click", skipIntro);
+  $("intro-continue").addEventListener("click", () => virtual && virtual.continueIntro());
   $("mute-btn").addEventListener("click", () => { pb.setMuted(!pb.muted); savePrefs({ muted: pb.muted }); });
   $("volume").addEventListener("input", (e) => { pb.setVolume(Number(e.target.value)); savePrefs({ volume: pb.volume, muted: pb.muted }); });
 

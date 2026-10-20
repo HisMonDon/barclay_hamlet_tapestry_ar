@@ -9,13 +9,15 @@ const OVERVIEW = { polar: THREE.MathUtils.degToRad(36), azimuth: 0, fill: 0.86 }
 const BLEND_S = 0.9;
 const DESK_HEIGHT = 0.74;
 
-// The opening: walk up to the desk at standing eye height, look down at the board, hold on the title, then
-// settle into the show's camera. Seconds from the first board frame; `reduced` keeps the camera still.
+// The opening: walk up to the desk at standing eye height, look down at the board and show the title, drifting
+// slowly over the tapestry until Continue; then linger while settling into the show's camera. Seconds from the
+// first board frame (title) or from Continue (linger); `reduced` keeps the camera still.
 const INTRO = {
-  walk: 5.2, look: [3.7, 6.3], lean: [4.4, 7.0], title: 6.0, out: 10.6, end: 11.1, blend: 1.6,
+  walk: 5.2, look: [3.7, 6.3], lean: [4.4, 7.0], title: 6.0, linger: 5.0, blend: 1.6,
   eye: 0.86, start: 2.2, arrive: 0.27, stepHz: 1.7, gaze: THREE.MathUtils.degToRad(21), leanTilt: THREE.MathUtils.degToRad(22),
+  idleSway: THREE.MathUtils.degToRad(3.5), idlePeriod: 16, sway: THREE.MathUtils.degToRad(6),
 };
-const INTRO_REDUCED = { title: 0.8, out: 5.4, end: 5.9 };
+const INTRO_REDUCED = { title: 0.8, linger: 0.8 };
 
 const smooth = (p) => p * p * (3 - 2 * p);
 const clamp01 = (p) => Math.min(1, Math.max(0, p));
@@ -593,13 +595,24 @@ export class VirtualStage {
     this.flight = null;
     this.touched = false;
     this.controls.enabled = false;
-    this.intro = { t0: null, plan: this.introPlan(), times: reduced ? INTRO_REDUCED : INTRO, reduced, phase: null };
+    this.intro = { t0: null, plan: this.introPlan(), times: reduced ? INTRO_REDUCED : INTRO, reduced, phase: null, continued: null };
     this.setPose(this.introPose(0));
     return true;
   }
 
   get introActive() {
     return !!this.intro;
+  }
+
+  // The title waits for Continue; then it clears and the view lingers on the tapestry before the show starts.
+  continueIntro(now = performance.now()) {
+    const I = this.intro;
+    if (!I || I.t0 === null || I.continued !== null) return false;
+    const e = (now - I.t0) / 1000;
+    if (e < I.times.title) return false;
+    I.continued = e;
+    I.from = this.idleState(e);
+    return true;
   }
 
   // Ends the opening early or on time and hands over to the show's camera; `play` tells the page to start the show.
@@ -625,15 +638,56 @@ export class VirtualStage {
     const edge = this.world(this.centre[0], dy1).z;
     const fit = this.fitRectangle(this.b.board_mm, INTRO.leanTilt, 1);
     const d = Math.min(fit.d, 1.05);
-    return {
+    const plan = {
       from: new THREE.Vector3(0.09, INTRO.eye + 0.012, edge + INTRO.start),
       arrive: new THREE.Vector3(0, INTRO.eye, edge + INTRO.arrive),
       lean: { target: fit.target, position: fit.target.clone().add(new THREE.Vector3(0, Math.cos(INTRO.leanTilt), Math.sin(INTRO.leanTilt)).multiplyScalar(d)) },
+      leanD: d,
+    };
+    plan.settle = this.settlePlan(plan);
+    return plan;
+  }
+
+  // Where the linger ends: just behind the show's opening camera, so the hand-over is a small push-in.
+  settlePlan(plan) {
+    if (!this.path) return { target: plan.lean.target, tilt: THREE.MathUtils.degToRad(14), d: plan.leanD * 0.75 };
+    const f = this.followPose(0);
+    const off = f.position.clone().sub(f.target);
+    const d = off.length();
+    return { target: f.target, tilt: Math.acos(off.y / d), d: d * 1.08 };
+  }
+
+  // While the title waits, the view drifts slowly from side to side over the tapestry and eases a little closer.
+  idleState(e) {
+    const P = this.intro.plan;
+    const since = e - INTRO.lean[1];
+    return {
+      target: P.lean.target, tilt: INTRO.leanTilt,
+      az: INTRO.idleSway * Math.sin((2 * Math.PI * since) / INTRO.idlePeriod) * smooth(clamp01(since / 4)),
+      d: P.leanD * (1 - 0.05 * smooth(clamp01(since / 8))),
     };
   }
 
+  // Where the view rests after the lean: the idle drift, then after Continue a slow push-in that sways to one
+  // side and back while it tips towards the show's camera angle.
+  settlePose(e) {
+    const I = this.intro, S = I.plan.settle;
+    let s = this.idleState(e);
+    if (I.continued !== null) {
+      const A = I.from, g = smooth(clamp01((e - I.continued) / INTRO.linger));
+      s = {
+        target: A.target.clone().lerp(S.target, g),
+        tilt: A.tilt + (S.tilt - A.tilt) * g,
+        az: A.az * (1 - g) + INTRO.sway * Math.sin(Math.PI * g),
+        d: Math.exp(Math.log(A.d) + (Math.log(S.d) - Math.log(A.d)) * g),
+      };
+    }
+    const dir = new THREE.Vector3(Math.sin(s.tilt) * Math.sin(s.az), Math.cos(s.tilt), Math.sin(s.tilt) * Math.cos(s.az));
+    return { target: s.target.clone(), position: s.target.clone().addScaledVector(dir, s.d) };
+  }
+
   // Camera at e seconds into the opening: an easing walk with head-bob that slows to a stop at the desk edge,
-  // the gaze dropping from across the desk to the board, a lean over it, then a slow breath while the title holds.
+  // the gaze dropping from across the desk to the board, a lean over it, then the linger.
   introPose(e) {
     const P = this.intro.plan;
     if (this.intro.reduced) return { position: P.lean.position.clone(), target: P.lean.target.clone(), roll: 0 };
@@ -643,28 +697,31 @@ export class VirtualStage {
     const step = e * Math.PI * 2 * INTRO.stepHz;
     position.y += 0.009 * Math.sin(step) * pace;
     position.x += 0.013 * Math.sin(step / 2) * pace;
+    const settle = this.settlePose(e);
     const lean = smooth(clamp01((e - INTRO.lean[0]) / (INTRO.lean[1] - INTRO.lean[0])));
-    position.lerp(P.lean.position, lean);
-    position.lerp(P.lean.target, 0.06 * smooth(clamp01((e - INTRO.lean[1]) / 5)));
+    position.lerp(settle.position, lean);
     // While walking, the eyes rest on the table at a steady downward angle, aimed past the far side of the board.
     const far = P.lean.target.z - 0.6;
     const ahead = new THREE.Vector3(P.lean.target.x - 0.02, position.y - Math.tan(INTRO.gaze) * (position.z - far), far);
     const look = smooth(clamp01((e - INTRO.look[0]) / (INTRO.look[1] - INTRO.look[0])));
-    const target = ahead.lerp(P.lean.target, look);
+    const target = ahead.lerp(settle.target, look);
     return { position, target, roll: 0.007 * Math.sin(step / 2) * pace };
   }
 
   runIntro(now) {
     const I = this.intro;
-    if (I.t0 === null && this.hasFrame) I.t0 = now;
+    if (I.t0 === null && this.hasFrame) {
+      I.t0 = now;
+      I.plan.settle = this.settlePlan(I.plan); // the camera path may have arrived while the board loaded
+    }
     const e = I.t0 === null ? 0 : (now - I.t0) / 1000;
     if (I.t0 !== null) {
-      const phase = e >= I.times.out ? "out" : e >= I.times.title ? "title" : "walk";
+      const phase = I.continued !== null ? "out" : e >= I.times.title ? "title" : "walk";
       if (phase !== I.phase) {
         I.phase = phase;
         this.onIntro(phase);
       }
-      if (e >= I.times.end) {
+      if (I.continued !== null && e >= I.continued + I.times.linger) {
         this.endIntro();
         return;
       }
