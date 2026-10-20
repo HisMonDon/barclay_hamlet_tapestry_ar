@@ -324,9 +324,6 @@ code { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-siz
 .scene { min-width: 0; display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
 .scene-id { flex: none; font-size: var(--fs-small); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--faint); }
 .scene-name { flex: none; font-size: var(--fs-section); font-weight: 600; white-space: nowrap; }
-.scene-desc { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-/* With the rail open, the playing scene's line is read in the scene list instead. */
-.workspace:not(.setup-closed) .scene-desc { display: none; }
 
 .mixer { display: flex; align-items: center; gap: 4px; }
 .ctl .i-muted, .ctl[aria-pressed="true"] .i-sound, .ctl .i-exit { display: none; }
@@ -369,7 +366,7 @@ kbd {
   font: 500 var(--fs-small)/1 var(--font); background: var(--raised); color: var(--text);
 }
 
-/* The scene list reads as the show's programme: each row jumps to its scene, the one playing opens to its line. */
+/* The scene list reads as the show's programme: each row jumps to its scene. */
 .scene-list { list-style: none; margin: 0 -10px; padding: 0; display: grid; gap: 2px; }
 .scene-row {
   width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; column-gap: 10px; align-items: baseline;
@@ -381,11 +378,9 @@ kbd {
 .scene-row .row-id { font-size: var(--fs-small); color: var(--faint); font-variant-numeric: tabular-nums; }
 .scene-row .row-name { font-weight: 500; color: var(--muted); }
 .scene-row .row-time { font-size: var(--fs-small); color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; }
-.scene-row .row-desc { grid-column: 2 / -1; display: none; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--muted); }
 .scene-row.current { background: var(--raised); }
 .scene-row.current .row-name { color: var(--text); }
 .scene-row.current .row-id { color: var(--gold); }
-.scene-row.current .row-desc { display: block; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: var(--control-height);
@@ -492,7 +487,6 @@ kbd {
 /* ---- smaller screens ------------------------------------------------------------------------------------------ */
 @media (max-width: 1180px) {
   :root { --rail-w: 328px; }
-  .scene-desc { display: none; }
   .brand-sub { display: none; }
 }
 

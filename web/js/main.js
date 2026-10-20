@@ -319,7 +319,7 @@ function buildThread() {
   $("scene-list").replaceChildren(...info.beats.map((b) => {
     const row = document.createElement("button");
     row.className = "scene-row";
-    for (const [cls, text] of [["row-id", b.id], ["row-name", b.name], ["row-time", formatTime(b.start)], ["row-desc", b.desc]]) {
+    for (const [cls, text] of [["row-id", b.id], ["row-name", b.name], ["row-time", formatTime(b.start)]]) {
       const span = document.createElement("span");
       span.className = cls;
       span.textContent = text;
@@ -403,8 +403,6 @@ function renderScene() {
   const b = info.beats[i];
   $("scene-id").textContent = b.id;
   $("scene-name").textContent = b.name;
-  $("scene-desc").textContent = b.desc;
-  $("scene").title = b.desc;
   const stitches = $("thread-track").children;
   for (let k = 0; k < stitches.length; k++) stitches[k].classList.toggle("current", k === i);
   const rows = $("scene-list").children;
