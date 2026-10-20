@@ -6,6 +6,9 @@
   <meta name="color-scheme" content="dark">
   <title>Hamlet’s Tapestry</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital@0;1&family=Inter:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="/static/styles.css">
   <script type="importmap">{"imports": {"three": "/static/vendor/three/three.module.min.js"}}</script>
   <script type="module" src="/static/js/main.js"></script>
@@ -13,7 +16,7 @@
 <body>
   <a class="skip" href="#transport">Skip to playback controls</a>
 
-  <header class="masthead">
+  <header class="topbar">
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 27c5-1 6-6 3-9s-2-8 3-9 8 1 9-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="23.5" cy="5.5" r="1.6" fill="currentColor"/></svg>
       <h1>Hamlet’s Tapestry <span class="brand-sub" id="show-title">The Serpent Beneath</span></h1>
@@ -30,10 +33,12 @@
       </button>
     </div>
 
-    <button class="setup-toggle" id="setup-toggle" aria-expanded="true" aria-controls="setup">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
-      <span>Setup</span>
-    </button>
+    <div class="topbar-end">
+      <button class="setup-toggle" id="setup-toggle" aria-expanded="true" aria-controls="setup">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span>Setup</span>
+      </button>
+    </div>
   </header>
 
   <main class="workspace" id="workspace">
@@ -51,7 +56,6 @@
           <div class="intro-card" role="group" aria-label="Title">
             <h2 class="intro-name">Hamlet’s Tapestry</h2>
             <p class="intro-sub" id="intro-sub">The Serpent Beneath</p>
-            <span class="intro-rule" aria-hidden="true"></span>
             <p class="intro-course">Ms. Barclay Media Assignment</p>
             <p class="intro-credit">Made by Chenyu Lu and Eric Yao</p>
             <button class="btn primary intro-continue" id="intro-continue">
@@ -87,10 +91,12 @@
 
         <div class="notice" id="notice" aria-live="polite" hidden>
           <div class="notice-card" role="group" aria-labelledby="notice-title" aria-describedby="notice-text">
-            <p class="notice-kicker" id="notice-kicker"></p>
             <h2 id="notice-title"></h2>
             <p id="notice-text"></p>
-            <div class="notice-actions" id="notice-actions"></div>
+            <div class="notice-foot">
+              <div class="notice-actions" id="notice-actions"></div>
+              <p class="notice-source" id="notice-source"></p>
+            </div>
           </div>
         </div>
 
@@ -101,7 +107,7 @@
         <div class="thread" id="thread">
           <div class="thread-track" id="thread-track" aria-hidden="true"></div>
           <div class="needle" id="needle" aria-hidden="true">
-            <svg viewBox="0 0 10 34"><path d="M5 1.2c1.6 0 2.4 1.2 2.4 3v9.5L5.5 33 4.6 33 2.6 13.7V4.2c0-1.8.8-3 2.4-3Z" fill="currentColor"/><ellipse cx="5" cy="5.6" rx="1" ry="2.6" fill="var(--lampblack)"/></svg>
+            <svg viewBox="0 0 10 34"><path d="M5 1.2c1.6 0 2.4 1.2 2.4 3v9.5L5.5 33 4.6 33 2.6 13.7V4.2c0-1.8.8-3 2.4-3Z" fill="currentColor"/><ellipse cx="5" cy="5.6" rx="1" ry="2.6" fill="var(--ground)"/></svg>
           </div>
           <input type="range" id="scrubber" class="scrubber" min="0" max="77" step="0.05" value="0" aria-label="Timeline position">
         </div>
@@ -149,7 +155,19 @@
     <aside class="setup" id="setup" aria-label="Setup">
       <!-- Virtual Explore -->
       <div class="setup-mode" data-for="virtual">
-        <section class="panel">
+        <section class="panel order-1">
+          <h2 class="panel-title">View</h2>
+          <label class="switch">
+            <input type="checkbox" id="follow-switch">
+            <span class="switch-ui" aria-hidden="true"></span>
+            <span class="switch-label">Follow animation<small>Ride along with the show’s own camera as it follows the Serpent.</small></span>
+          </label>
+          <div class="btn-row">
+            <button class="btn" id="reset-view-btn-2">Reset view</button>
+            <button class="btn" id="replay-intro-btn">Replay intro</button>
+          </div>
+        </section>
+        <section class="panel order-3">
           <h2 class="panel-title">Moving around</h2>
           <dl class="howto">
             <div><dt>Orbit</dt><dd>Drag, or one finger. Arrow keys when the view is focused.</dd></div>
@@ -158,18 +176,7 @@
           </dl>
           <p class="hint">You can look around while the show is paused. Moving the view turns off Follow animation.</p>
         </section>
-        <section class="panel">
-          <h2 class="panel-title">View</h2>
-          <p class="hint">Follow the animation's camera as it explores the virtual tapestry, or move around the board yourself.</p>
-          <label class="switch">
-            <input type="checkbox" id="follow-switch">
-            <span class="switch-ui" aria-hidden="true"></span>
-            <span class="switch-label">Follow animation<small>Ride along with the show’s own camera as it follows the Serpent.</small></span>
-          </label>
-          <button class="btn" id="reset-view-btn-2">Reset view</button>
-          <button class="btn" id="replay-intro-btn">Replay intro</button>
-        </section>
-        <section class="panel">
+        <section class="panel order-4">
           <h2 class="panel-title">About this view</h2>
           <p class="hint" id="about-view">The animation is rendered live by the tapestry engine and laid onto a virtual board, with the four tracking markers where they sit on the real one. No camera is used.</p>
           <p class="credit">Ms. Barclay Media Assignment<br>Made by Chenyu Lu and Eric Yao</p>
@@ -178,7 +185,7 @@
 
       <!-- Scan Tapestry -->
       <div class="setup-mode" data-for="scan" hidden>
-        <section class="panel">
+        <section class="panel order-1">
           <h2 class="panel-title">Camera</h2>
           <div class="segmented" role="radiogroup" aria-label="Camera source" id="source-picker">
             <label><input type="radio" name="source" value="browser" checked><span>Webcam</span></label>
@@ -204,8 +211,8 @@
               <img id="phone-qr" alt="QR code that opens the phone camera page" width="168" height="168">
               <div class="phone-link-text">
                 <label class="field" id="phone-addr-field" hidden><span>Network address</span><select id="phone-addr"></select></label>
-                <p class="mono small" id="phone-url"></p>
-                <button class="btn ghost small" id="copy-phone-url">Copy link</button>
+                <code class="phone-url" id="phone-url"></code>
+                <button class="btn small" id="copy-phone-url">Copy link</button>
               </div>
             </div>
             <ol class="steps">
@@ -222,17 +229,17 @@
             <label class="field"><span>Stream URL or camera number</span>
               <input type="text" id="stream-url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.20:8080/video">
             </label>
-            <p class="hint">Use the MJPEG or RTSP address from an IP camera app, for example IP Webcam (<span class="mono">http://phone-ip:8080/video</span>) or DroidCam (<span class="mono">http://phone-ip:4747/video</span>). A number such as <span class="mono">0</span> opens that camera through OpenCV, as <span class="mono">app.py --camera</span> does.</p>
+            <p class="hint">Use the MJPEG or RTSP address from an IP camera app, for example IP Webcam (<code>http://phone-ip:8080/video</code>) or DroidCam (<code>http://phone-ip:4747/video</code>). A number such as <code>0</code> opens that camera through OpenCV, as <code>app.py --camera</code> does.</p>
           </div>
 
           <div class="source-actions">
             <button class="btn primary" id="source-start">Start camera</button>
-            <button class="btn ghost" id="source-stop" hidden>Stop camera</button>
+            <button class="btn" id="source-stop" hidden>Stop camera</button>
           </div>
           <p class="source-status" id="source-status" aria-live="polite"></p>
         </section>
 
-        <section class="panel">
+        <section class="panel order-2">
           <h2 class="panel-title">View</h2>
           <label class="switch">
             <input type="checkbox" id="cine-switch">
@@ -246,38 +253,48 @@
           </label>
         </section>
 
-        <section class="panel">
+        <section class="panel order-4">
           <h2 class="panel-title">Placing the tapestry</h2>
-          <figure class="layout-diagram">
-            <svg viewBox="0 0 220 280" role="img" aria-labelledby="diagram-title">
-              <title id="diagram-title">Marker 0 at top-left, 1 at top-right, 2 at bottom-right, 3 at bottom-left, each just outside the drawing’s corner.</title>
-              <rect x="6" y="6" width="208" height="268" rx="4" class="d-board"/>
-              <rect x="52" y="52" width="116" height="176" class="d-paper"/>
-              <path d="M66 80h88M66 120h88M66 160h88M66 200h88" class="d-lines"/>
-              <g class="d-marker"><rect x="18" y="18" width="30" height="30"/><text x="33" y="38">0</text></g>
-              <g class="d-marker"><rect x="172" y="18" width="30" height="30"/><text x="187" y="38">1</text></g>
-              <g class="d-marker"><rect x="172" y="232" width="30" height="30"/><text x="187" y="252">2</text></g>
-              <g class="d-marker"><rect x="18" y="232" width="30" height="30"/><text x="33" y="252">3</text></g>
-            </svg>
-          </figure>
-          <ul class="tips">
-            <li>Print <span class="mono">markers.pdf</span> at 100% / Actual size and check the 100 mm scale bar.</li>
-            <li>Place markers 0–3 clockwise from the top-left, upright, inner corners facing the drawing, <span id="gap-mm">8</span> mm beyond its edges.</li>
-            <li>Mount the camera above the board, looking down, with the whole board filling about two-thirds of the picture.</li>
-            <li>Light the board evenly and avoid glare on the markers. At least <span id="min-markers">3</span> must be visible to lock on.</li>
-            <li>The show waits for the first lock. If markers are covered later, the last good position is held.</li>
-          </ul>
+          <div class="placing">
+            <figure class="layout-diagram">
+              <svg viewBox="0 0 220 280" role="img" aria-labelledby="diagram-title">
+                <title id="diagram-title">Marker 0 at top-left, 1 at top-right, 2 at bottom-right, 3 at bottom-left, each just outside the drawing’s corner.</title>
+                <rect x="6" y="6" width="208" height="268" rx="4" class="d-board"/>
+                <rect x="52" y="52" width="116" height="176" class="d-paper"/>
+                <path d="M66 80h88M66 120h88M66 160h88M66 200h88" class="d-lines"/>
+                <g class="d-marker"><rect x="18" y="18" width="30" height="30"/><text x="33" y="38">0</text></g>
+                <g class="d-marker"><rect x="172" y="18" width="30" height="30"/><text x="187" y="38">1</text></g>
+                <g class="d-marker"><rect x="172" y="232" width="30" height="30"/><text x="187" y="252">2</text></g>
+                <g class="d-marker"><rect x="18" y="232" width="30" height="30"/><text x="33" y="252">3</text></g>
+              </svg>
+            </figure>
+            <ul class="tips">
+              <li>Print <code>markers.pdf</code> at 100% / Actual size and check the 100 mm scale bar.</li>
+              <li>Place markers 0–3 clockwise from the top-left, upright, inner corners facing the drawing, <span id="gap-mm">8</span> mm beyond its edges.</li>
+              <li>Mount the camera above the board, looking down, with the whole board filling about two-thirds of the picture.</li>
+              <li>Light the board evenly and avoid glare on the markers. At least <span id="min-markers">3</span> must be visible to lock on.</li>
+              <li>The show waits for the first lock. If markers are covered later, the last good position is held.</li>
+            </ul>
+          </div>
         </section>
       </div>
 
-      <section class="panel keys">
+      <section class="panel order-2 scenes-panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Scenes</h2>
+          <p class="panel-meta" id="scenes-meta"></p>
+        </div>
+        <ol class="scene-list" id="scene-list"></ol>
+      </section>
+
+      <section class="panel order-5 keys">
         <h2 class="panel-title">Keyboard</h2>
         <dl class="keylist">
           <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
           <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next scene</dd></div>
           <div><dt><kbd>Home</kbd></dt><dd>Restart</dd></div>
           <div id="key-mute"><dt><kbd>M</kbd></dt><dd>Mute</dd></div>
-          <div><dt><kbd>Shift</kbd>+<kbd>F</kbd></dt><dd>Fullscreen</dd></div>
+          <div><dt><kbd>Shift</kbd> <kbd>F</kbd></dt><dd>Fullscreen</dd></div>
           <div><dt><kbd>F</kbd></dt><dd>Follow animation</dd></div>
           <div><dt><kbd>Esc</kbd></dt><dd>Skip the intro</dd></div>
         </dl>
