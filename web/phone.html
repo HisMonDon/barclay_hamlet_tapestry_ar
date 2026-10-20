@@ -6,15 +6,19 @@
   <meta name="color-scheme" content="dark">
   <title>Phone camera — Hamlet’s Tapestry</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond&family=Inter:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="/static/phone.css">
   <script type="module" src="/static/phone.js"></script>
 </head>
 <body>
   <main class="phone">
-    <header>
-      <p class="kicker">Hamlet’s Tapestry</p>
-      <h1>Phone camera</h1>
+    <header class="bar">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 27c5-1 6-6 3-9s-2-8 3-9 8 1 9-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="23.5" cy="5.5" r="1.6" fill="currentColor"/></svg>
+      <span class="wordmark">Hamlet’s Tapestry</span>
     </header>
+    <h1>Phone camera</h1>
 
     <div class="preview">
       <video id="preview" muted playsinline autoplay aria-label="Camera preview"></video>

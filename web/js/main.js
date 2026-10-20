@@ -202,7 +202,7 @@ function showNotice(n) {
   $("notice").hidden = false;
   const card = $("notice").querySelector(".notice-card");
   card.dataset.tone = n.tone || "";
-  $("notice-kicker").textContent = n.kicker || "";
+  $("notice-source").textContent = n.kicker || "";
   $("notice-title").textContent = n.title || "";
   $("notice-text").textContent = n.text || "";
   const box = $("notice-actions");
@@ -314,6 +314,23 @@ function buildThread() {
   const sc = $("scrubber");
   sc.max = String(info.end);
   $("time-total").textContent = formatTime(info.end);
+
+  // The rail lists the scenes as the show's programme; a row jumps to the start of its scene.
+  $("scene-list").replaceChildren(...info.beats.map((b) => {
+    const row = document.createElement("button");
+    row.className = "scene-row";
+    for (const [cls, text] of [["row-id", b.id], ["row-name", b.name], ["row-time", formatTime(b.start)], ["row-desc", b.desc]]) {
+      const span = document.createElement("span");
+      span.className = cls;
+      span.textContent = text;
+      row.append(span);
+    }
+    row.addEventListener("click", () => { interruptIntro(); pb.seek(b.start); });
+    const li = document.createElement("li");
+    li.append(row);
+    return li;
+  }));
+  $("scenes-meta").textContent = `${info.beats.length} scenes · ${formatTime(info.end)}`;
 }
 
 function wireTransport() {
@@ -390,6 +407,13 @@ function renderScene() {
   $("scene").title = b.desc;
   const stitches = $("thread-track").children;
   for (let k = 0; k < stitches.length; k++) stitches[k].classList.toggle("current", k === i);
+  const rows = $("scene-list").children;
+  for (let k = 0; k < rows.length; k++) {
+    const row = rows[k].firstChild;
+    row.classList.toggle("current", k === i);
+    if (k === i) row.setAttribute("aria-current", "true");
+    else row.removeAttribute("aria-current");
+  }
   lastSecond = -1;
 }
 
