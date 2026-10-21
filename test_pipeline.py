@@ -362,6 +362,7 @@ def artwork_checks(cfg):
 def system_checks(cfg):
     import copy
     from types import SimpleNamespace
+    cfg = dict(cfg, sound=dict(cfg["sound"], on=True))  # the shipped show is silent; check the engine with sound on
     tl = Timeline(cfg)
     sync_time = tl.at("B02", 2.32)
     scene = SimpleNamespace(cues=lambda: [("vial", sync_time)], weaves=[])
@@ -750,7 +751,7 @@ def serpent_checks(cfg):
     check("panels show the paper before their reveal", clean < 6, f"max diff {clean:.1f}")
     check("revealed panels show the aligned corrupt art", shown < 10, f"median diff {shown:.1f}")
 
-    track = Soundtrack(cfg, tl, sc)
+    track = Soundtrack(dict(cfg, sound=dict(cfg["sound"], on=True)), tl, sc)
     drips = sorted(x[1] for x in track.events if x[0] == "drip")
     inhales = sorted(x[1] for x in track.events if x[0] == "inhale")
     floods = [x for x in rv.panels if not x["light"]]

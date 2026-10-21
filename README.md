@@ -223,6 +223,8 @@ The supplied artwork already has mapped vial hand/ear, joined hands, ghost polyg
 
 ## Configuration and sound
 
+The show is silent: `sound.on` is `false` in `config.json`, so the projector app, the browser viewer and rendered videos carry no audio and the browser shows no sound controls. Set it to `true` to bring the soundtrack back.
+
 Board dimensions, paper size and overlay margin live in `config.json`. Story-specific seeds, props, camera keys, regions, ink, embroidery and banner settings live in the beat file. Positions are normalized 0-1 across the drawing; radii and speeds are measured in drawing widths. A camera key uses center `x,y` and width `w`, or full-drawing-height fraction `h`; `f: 1` opens to the full camera frame.
 
 The live preset processes ink at 40% of tapestry resolution, embroidery at 70%, and composition at 1056x594, then outputs 1920x1080. These independent scales are editable under `quality.live`. Tracking runs every third rendered frame. The render preset retains full-resolution composition and finer effect canvases. Synthetic board exports project the original scan directly into each final view, preserving close-up detail instead of enlarging a downsampled fake camera image. Video is encoded once to H.264; adding audio copies that picture stream without recompression. `quality.render.direct_scan`, `video_crf` and `video_preset` control this path. `performance.opencv_threads` avoids oversubscribing the CPU.
