@@ -55,7 +55,7 @@
  },
  "motes": {"on": true, "count": 48, "seed": 5, "brightness": 75, "colour": "#ffd8a8", "near_px": 26, "parallax": 0.35, "light": [0.22, 0.2]},
  "sound": {
-  "on": true,
+  "on": false,
   "rate": 44100,
   "volume": 0.8,
   "dir": "assets/sfx",

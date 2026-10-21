@@ -281,7 +281,8 @@ def main():
     writer.release()
     dt = time.perf_counter() - t0
     print(f"rendered {n} frames in {dt:.1f} s ({dt / n * 1000:.1f} ms/frame)")
-    wav = None if args.no_audio else soundtrack(renderer, out.with_suffix(".wav"), args.start, end)
+    silent = args.no_audio or not cfg.get("sound", {}).get("on", True)
+    wav = None if silent else soundtrack(renderer, out.with_suffix(".wav"), args.start, end)
     if wav and mux(raw, wav, out, cfg.get("sound", {}).get("export_codec", "alac")):
         raw.unlink()
         print(f"wrote {out} with audio")

@@ -52,14 +52,13 @@ class EngineTests(unittest.TestCase):
         bx0, by0, bx1, by1 = info["board"]["board_mm"]
         self.assertTrue(x0 <= bx0 and y0 <= by0 and x1 >= bx1 and y1 > by1, "texture covers the board and the spill strip")
 
-    def test_soundtrack_matches_timeline_and_keeps_the_silence(self):
+    def test_show_is_silent(self):
         with wave.open(io.BytesIO(self.engine.wav)) as w:
             rate, n = w.getframerate(), w.getnframes()
             data = np.frombuffer(w.readframes(n), "<i2")
         self.assertAlmostEqual(n / rate, self.engine.timeline.end, places=2)
-        silence = self.engine.soundtrack.silence
-        self.assertEqual(int(np.abs(data[int(silence * rate):]).max()), 0)
-        self.assertGreater(int(np.abs(data[:int(silence * rate)]).max()), 0)
+        self.assertFalse(data.any())
+        self.assertFalse(self.engine.info()["audio"])
 
     def test_camera_path_samples_the_show_camera(self):
         path = self.engine.camera_path()
